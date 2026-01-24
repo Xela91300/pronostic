@@ -8,3 +8,5 @@ scikit-learn
 nba_api>=1.3.0
 # ou pour forcer la toute dernière :
 git+https://github.com/swar/nba_api.git@master
+# Autres dépendances si tu en as (streamlit, pandas, lightgbm, joblib, numpy...)
+git+https://github.com/swar/nba_api.git@master
