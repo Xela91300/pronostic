@@ -2,96 +2,144 @@ import streamlit as st
 import pandas as pd
 import requests
 import time
+import random
 from datetime import datetime
 
-# ─── CONFIG ────────────────────────────────────────────────────────────────
-ODDS_API_KEY = "b9250f9ec1510f4136bdaca0b1f4f5cf"  # Ta clé The Odds API
-ODDS_BASE = "https://api.the-odds-api.com/v4"
+# ────────────────────────────────────────────────────────────────────────────
+# CONFIGURATION GLOBALE
+# ────────────────────────────────────────────────────────────────────────────
+
+ODDS_API_KEY = "b9250f9ec1510f4136bdaca0b1f4f5cf"
+ODDS_BASE_URL = "https://api.the-odds-api.com/v4"
 
 st.set_page_config(page_title="Pronos IA + Cotes Réelles", layout="wide")
-st.title("Pronostics IA + Cotes Bookmakers en Temps Réel ⚽")
-st.caption(f"Mis à jour : {datetime.now().strftime('%H:%M:%S')} | Refresh auto")
 
-refresh_sec = st.sidebar.slider("Rafraîchissement (s)", 60, 300, 120)  # 120s recommandé (quota)
-regions = st.sidebar.selectbox("Région bookmakers", ["eu", "uk", "us"], index=0)
-value_threshold = st.sidebar.slider("Seuil Value Bet (%)", 5, 20, 8)
+st.title("Pronostics IA Temps Réel + Value Bets ⚽🏀🎾")
+st.caption(f"Mis à jour : {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | Rafraîchissement auto")
+
+# Sidebar
+with st.sidebar:
+    st.header("Paramètres")
+    refresh_interval = st.slider("Intervalle de rafraîchissement (secondes)", 60, 300, 120)
+    region = st.selectbox("Région des bookmakers", ["eu", "uk", "us", "au"], index=0)
+    value_threshold = st.slider("Seuil minimum pour Value Bet (%)", 3, 20, 8)
 
 placeholder = st.empty()
 
-# ─── RÉCUP COTES via The Odds API ──────────────────────────────────────────
-@st.cache_data(ttl=refresh_sec - 10)
-def fetch_odds():
-    url = f"{ODDS_BASE}/sports/soccer/odds/?apiKey={ODDS_API_KEY}&regions={regions}&markets=h2h&oddsFormat=decimal"
+# ────────────────────────────────────────────────────────────────────────────
+# FONCTIONS
+# ────────────────────────────────────────────────────────────────────────────
+
+def fetch_odds_from_api():
+    """Récupère les cotes via The Odds API"""
+    url = (
+        f"{ODDS_BASE_URL}/sports/soccer/odds/"
+        f"?apiKey={ODDS_API_KEY}"
+        f"&regions={region}"
+        f"&markets=h2h"
+        f"&oddsFormat=decimal"
+    )
+
     try:
-        resp = requests.get(url, timeout=15)
-        st.session_state.last_status = resp.status_code
-        if resp.status_code == 200:
-            data = resp.json()
+        response = requests.get(url, timeout=12)
+        st.session_state.api_status = response.status_code
+        st.session_state.api_message = response.text[:300] if response.status_code != 200 else ""
+
+        if response.status_code == 200:
+            data = response.json()
+            if not data:
+                return pd.DataFrame()
+
             rows = []
             for event in data:
-                home = event['home_team']
-                away = event['away_team']
-                commence = event['commence_time']
-                bookmakers = event.get('bookmakers', [])
-                if bookmakers:
-                    best_home = min([b['markets'][0]['outcomes'][0]['price'] for b in bookmakers if b['markets']])  # meilleur cote home
-                    best_away = min([b['markets'][0]['outcomes'][2]['price'] for b in bookmakers if b['markets']])  # away = index 2 souvent
+                home_team = event.get("home_team", "?")
+                away_team = event.get("away_team", "?")
+                bookmakers = event.get("bookmakers", [])
+
+                if bookmakers and bookmakers[0].get("markets"):
+                    market = bookmakers[0]["markets"][0]
+                    outcomes = {o["name"]: o["price"] for o in market["outcomes"]}
                     rows.append({
-                        "match": f"{home} vs {away}",
-                        "ligue": event['sport_key'].replace('soccer_', '').upper(),
-                        "commence": commence,
-                        "cote_home": best_home,
-                        "cote_away": best_away,
-                        # Ajoute proba implicite
-                        "implied_home": 1 / best_home if best_home > 1 else 0
+                        "match": f"{home_team} vs {away_team}",
+                        "ligue": event.get("sport_key", "?").replace("soccer_", "").upper(),
+                        "commence_time": event.get("commence_time", "?"),
+                        "cote_home": outcomes.get(home_team, 0.0),
+                        "cote_draw": outcomes.get("Draw", 0.0),
+                        "cote_away": outcomes.get(away_team, 0.0),
                     })
+
             return pd.DataFrame(rows)
         else:
-            st.error(f"Erreur API Odds : {resp.status_code} - {resp.text[:200]}")
             return pd.DataFrame()
+
     except Exception as e:
-        st.error(f"Exception : {str(e)}")
+        st.session_state.api_status = -1
+        st.session_state.api_message = str(e)
         return pd.DataFrame()
 
-# ─── IA PRONOSTIC SIMPLIFIÉ (ou ton modèle) ────────────────────────────────
-def add_ia_proba(df):
-    # Simulation ou ton LightGBM ici
-    df["proba_home_ia"] = [round(random.uniform(0.45, 0.80), 3) for _ in df.index]
-    df["value_home"] = (df["proba_home_ia"] * df["cote_home"]) - 1
+
+def add_ia_predictions(df):
+    """Ajoute des probabilités IA simulées (remplace par ton modèle LightGBM plus tard)"""
+    if df.empty:
+        return df
+
+    df["proba_home_ia"] = [round(random.uniform(0.42, 0.82), 3) for _ in range(len(df))]
+    df["value_home"] = df["proba_home_ia"] * df["cote_home"] - 1
     df["value_pct"] = df["value_home"] * 100
     return df
 
-# ─── BOUCLE LIVE ───────────────────────────────────────────────────────────
+
+# ────────────────────────────────────────────────────────────────────────────
+# BOUCLE PRINCIPALE – RAFRAÎCHISSEMENT AUTOMATIQUE
+# ────────────────────────────────────────────────────────────────────────────
+
 while True:
     with placeholder.container():
-        df_odds = fetch_odds()
-        
+        df_odds = fetch_odds_from_api()
+
         if df_odds.empty:
-            st.info("Pas de cotes récupérées. Vérifie clé/quota ou essaie plus tard.")
-            st.write("Dernier status code :", st.session_state.get('last_status', 'inconnu'))
+            st.info("Aucune donnée récupérée pour le moment.")
+            if "api_status" in st.session_state:
+                status = st.session_state.api_status
+                if status == 401:
+                    st.error("Erreur 401 → Clé API invalide ou non reconnue")
+                elif status == 403:
+                    st.error("Erreur 403 → Accès interdit (clé non activée ?)")
+                elif status == 429:
+                    st.error("Erreur 429 → Quota dépassé (500 req/mois sur plan gratuit)")
+                elif status == -1:
+                    st.error(f"Erreur réseau ou timeout : {st.session_state.api_message}")
+                else:
+                    st.error(f"Code HTTP inattendu : {status}")
+                    if "api_message" in st.session_state:
+                        st.code(st.session_state.api_message)
         else:
-            df = add_ia_proba(df_odds)
-            
-            st.subheader(f"Matchs & Cotes ({len(df)}) – Région : {regions.upper()}")
-            
-            disp = df[["match", "ligue", "cote_home", "proba_home_ia", "value_pct"]].copy()
-            disp["cote_home"] = disp["cote_home"].apply(lambda x: f"{x:.2f}")
-            disp["proba_home_ia"] = disp["proba_home_ia"].apply(lambda x: f"{x:.0%}")
-            disp["value_pct"] = disp["value_pct"].apply(lambda x: f"+{x:.1f}%" if x > value_threshold else f"{x:.1f}%")
-            
-            def highlight_value(row):
+            df = add_ia_predictions(df_odds)
+
+            st.subheader(f"Matchs trouvés : {len(df)} – Région : {region.upper()}")
+
+            display_df = df[[
+                "match", "ligue", "cote_home", "proba_home_ia", "value_pct"
+            ]].copy()
+
+            display_df["cote_home"] = display_df["cote_home"].round(2).astype(str)
+            display_df["proba_home_ia"] = (display_df["proba_home_ia"] * 100).round(0).astype(int).astype(str) + " %"
+            display_df["value_pct"] = display_df["value_pct"].round(1).apply(
+                lambda x: f"+{x}%" if x > value_threshold else f"{x}%"
+            )
+
+            def style_value_bet(row):
                 if row["value_pct"].startswith("+") and float(row["value_pct"][1:-1]) > value_threshold:
-                    return ['background-color: #ccffcc'] * len(row)
-                return [''] * len(row)
-            
+                    return ["background-color: #d4edda"] * len(row)
+                return [""] * len(row)
+
             st.dataframe(
-                disp.style.apply(highlight_value, axis=1),
+                display_df.style.apply(style_value_bet, axis=1),
                 use_container_width=True,
                 hide_index=True
             )
-            
-            st.caption("Value = (proba IA × cote) - 1 → vert si opportunité > seuil")
-            st.caption(f"Quota restant : vérifie sur https://the-odds-api.com (usage dans dashboard)")
-    
-    time.sleep(refresh_sec)
+
+            st.caption("Value = (proba IA × cote domicile) - 1 → vert si opportunité détectée")
+
+    time.sleep(refresh_interval)
     st.rerun()
