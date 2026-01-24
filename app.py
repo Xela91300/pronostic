@@ -7,7 +7,7 @@ import time
 import os
 from datetime import datetime, date
 
-# Mapping ID équipe → Nom complet
+# Mapping ID → Nom d'équipe (complet et fiable)
 TEAM_MAPPING = {
     1610612737: "Atlanta Hawks",
     1610612738: "Boston Celtics",
@@ -54,15 +54,15 @@ value_threshold = st.sidebar.slider("Seuil Value Bet (%)", 5, 20, 10)
 
 placeholder = st.empty()
 
-# Debug rapide
-st.write("Fichiers présents dans le dossier :", os.listdir("."))
+# Debug fichiers présents
+st.write("Fichiers dans le dossier racine :", os.listdir("."))
 
 # ─── CHARGEMENT DU MODELE ──────────────────────────────────────────────────
 @st.cache_resource
 def load_model():
     model_path = "nba_model.pkl"
     if not os.path.exists(model_path):
-        st.error(f"Le fichier {model_path} n'est pas trouvé dans le dossier racine")
+        st.error(f"Le fichier {model_path} n'est pas présent dans le dossier racine")
         return None
     try:
         model = joblib.load(model_path)
@@ -70,6 +70,7 @@ def load_model():
         return model
     except Exception as e:
         st.error(f"Erreur lors du chargement du modèle : {str(e)}")
+        st.info("Causes possibles : fichier corrompu, version joblib/lightgbm incompatible, ou pickle mal créé.")
         return None
 
 model = load_model()
@@ -82,7 +83,7 @@ def get_nba_games():
         games_df = sb.get_data_frames()[0]
 
         if games_df.empty:
-            st.info("Aucun match NBA aujourd'hui")
+            st.info("Aucun match NBA aujourd'hui selon scoreboardv2")
             return pd.DataFrame()
 
         rows = []
@@ -98,7 +99,7 @@ def get_nba_games():
             status = row.get('GAME_STATUS_TEXT', 'À venir')
             game_id = row.get('GAME_ID', '')
 
-            box_info = "Pas de boxscore avancé"
+            box_info = "Pas de boxscore avancé disponible"
             if game_id and ("Final" in status or "Q" in status or "Half" in status):
                 try:
                     box = boxscoreadvancedv2.BoxScoreAdvancedV2(game_id=game_id)
@@ -124,7 +125,7 @@ def get_nba_games():
         st.error(f"Erreur globale nba_api : {str(e)}")
         return pd.DataFrame()
 
-# ─── PREDICTION & VALUE BET ────────────────────────────────────────────────
+# ─── PRÉDICTION & VALUE BET ────────────────────────────────────────────────
 def predict_home_proba(row):
     if model is None:
         return round(random.uniform(0.50, 0.80), 3)
