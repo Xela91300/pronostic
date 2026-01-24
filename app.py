@@ -319,7 +319,7 @@ with tab3:
 
 def display_upcoming_games(df, threshold):
 # Affiche les matchs a venir
-st.header(“Pronostics du jour”)
+st.header(Pronostics du jour)
 
 ```
 if df.empty:
