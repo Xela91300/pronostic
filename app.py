@@ -267,7 +267,7 @@ return df
 # ============================================================================
 
 def main():
-st.set_page_config(page_title=“NBA Pronostics”, page_icon=“🏀”, layout=“wide”)
+st.set_page_config(page_title=NBA Pronostics, page_icon=🏀, layout=wide)
 
 ```
 st.title("🏀 Pronostiqueur NBA")
