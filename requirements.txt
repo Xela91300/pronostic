@@ -1,7 +1,5 @@
 streamlit
 pandas
-requests
 joblib
-numpy
 lightgbm
 scikit-learn
