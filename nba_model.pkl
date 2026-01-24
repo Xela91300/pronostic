@@ -1,15 +1,11 @@
 import joblib
 from lightgbm import LGBMClassifier
-import pandas as pd
 import numpy as np
 
-# Données fictives juste pour entraîner un modèle minimal
-X = pd.DataFrame(np.random.rand(100, 3), columns=['home_adv', 'pace_diff', 'net_rating_diff'])
-y = np.random.randint(0, 2, 100)  # 0 = away win, 1 = home win
+X = np.random.rand(100, 3)
+y = np.random.randint(0, 2, 100)
 
-model = LGBMClassifier(n_estimators=50, random_state=42)
+model = LGBMClassifier(n_estimators=50)
 model.fit(X, y)
 
-# Sauvegarde
 joblib.dump(model, "nba_model.pkl")
-print("Fichier nba_model.pkl créé !")
