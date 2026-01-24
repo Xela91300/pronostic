@@ -26,7 +26,7 @@ MODEL_PATH = nba_model.pkl
 CACHE_TTL = 3600  # 1 heure
 
 team_list = teams.get_teams()
-TEAM_DICT = {team[“id”]: team[“abbreviation”] for team in team_list}
+TEAM_DICT = {team[id]: team[abbreviation] for team in team_list}
 
 # ============================================================================
 
