@@ -76,7 +76,7 @@ def fetch_games_for_date(target_date, team_stats):
 # Recupere les matchs pour une date donnee
 # Utilise les stats pre-chargees (pas d’appel boxscore)
 try:
-date_str = target_date.strftime(”%Y-%m-%d”)
+date_str = target_date.strftime(%Y-%m-%d)
 scoreboard = scoreboardv2.ScoreboardV2(game_date=date_str)
 games_df = scoreboard.get_data_frames()[0]
 
