@@ -1,5 +1,6 @@
 streamlit
 pandas
+requests
 joblib
 lightgbm
 scikit-learn
