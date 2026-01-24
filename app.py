@@ -179,7 +179,7 @@ return df
 
 def train_or_load_model(df):
 # Charge le modele existant ou en entraine un nouveau
-features = [“win_pct_diff”, “form_diff”, “home_advantage”]
+features = [win_pct_diff, form_diff, home_advantage]
 
 ```
 # Tenter de charger modele existant
