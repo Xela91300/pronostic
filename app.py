@@ -433,5 +433,5 @@ home_form: 0.50, away_form: 0.40
 }
 ])
 
-if **name** == “**main**”:
+if **name** == **main**:
 main()
