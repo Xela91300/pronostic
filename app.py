@@ -6,6 +6,40 @@ import random
 import time
 from datetime import datetime, date
 
+# Dictionnaire de secours (IDs → noms d'équipe) pour fallback si colonnes manquantes
+TEAM_NAME_MAPPING = {
+    1610612737: "Atlanta Hawks",
+    1610612738: "Boston Celtics",
+    1610612751: "Brooklyn Nets",
+    1610612766: "Charlotte Hornets",
+    1610612741: "Chicago Bulls",
+    1610612739: "Cleveland Cavaliers",
+    1610612742: "Dallas Mavericks",
+    1610612743: "Denver Nuggets",
+    1610612765: "Detroit Pistons",
+    1610612744: "Golden State Warriors",
+    1610612745: "Houston Rockets",
+    1610612754: "Indiana Pacers",
+    1610612746: "LA Clippers",
+    1610612747: "Los Angeles Lakers",
+    1610612763: "Memphis Grizzlies",
+    1610612748: "Miami Heat",
+    1610612749: "Milwaukee Bucks",
+    1610612750: "Minnesota Timberwolves",
+    1610612740: "New Orleans Pelicans",
+    1610612752: "New York Knicks",
+    1610612760: "Oklahoma City Thunder",
+    1610612753: "Orlando Magic",
+    1610612755: "Philadelphia 76ers",
+    1610612756: "Phoenix Suns",
+    1610612757: "Portland Trail Blazers",
+    1610612758: "Sacramento Kings",
+    1610612759: "San Antonio Spurs",
+    1610612761: "Toronto Raptors",
+    1610612762: "Utah Jazz",
+    1610612764: "Washington Wizards"
+}
+
 # ────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION
 # ────────────────────────────────────────────────────────────────────────────
@@ -32,26 +66,34 @@ def load_model():
 
 model = load_model()
 
-# ─── RECUP MATCHS DU JOUR via nba_api (colonnes corrigées) ─────────────────
+# ─── RECUP MATCHS DU JOUR via nba_api ──────────────────────────────────────
 @st.cache_data(ttl=refresh_sec - 30)
 def get_nba_games_today():
     try:
         sb = scoreboardv2.ScoreboardV2(game_date=date.today().strftime("%Y-%m-%d"))
-        games_df = sb.get_data_frames()[0]  # GameHeader est généralement le premier DF
+        games_df = sb.get_data_frames()[0]  # GameHeader
 
         if games_df.empty:
             return pd.DataFrame()
 
-        # Colonnes réelles typiques (adapté à la doc nba_api) :
-        # VISITOR_TEAM_CITY + VISITOR_TEAM_NICKNAME, HOME_TEAM_CITY + HOME_TEAM_NICKNAME
-        # ou parfois VISITOR_TEAM_NAME / HOME_TEAM_NAME
         rows = []
         for _, row in games_df.iterrows():
-            # Construction sécurisée des noms d'équipe
-            away_team = f"{row.get('VISITOR_TEAM_CITY', '')} {row.get('VISITOR_TEAM_NICKNAME', row.get('VISITOR_TEAM_NAME', '?'))}".strip()
-            home_team = f"{row.get('HOME_TEAM_CITY', '')} {row.get('HOME_TEAM_NICKNAME', row.get('HOME_TEAM_NAME', '?'))}".strip()
+            # Construction des noms d'équipe avec fallback
+            away_team = row.get('VISITOR_TEAM_NICKNAME', '')
+            if away_team:
+                away_team = f"{row.get('VISITOR_TEAM_CITY', '')} {away_team}".strip()
+            else:
+                away_id = row.get('VISITOR_TEAM_ID')
+                away_team = TEAM_NAME_MAPPING.get(away_id, '? Away ?')
 
-            score = f"{row.get('HOME_TEAM_SCORE', '?')} - {row.get('VISITOR_TEAM_SCORE', '?')}" if row.get('HOME_TEAM_SCORE') else "-"
+            home_team = row.get('HOME_TEAM_NICKNAME', '')
+            if home_team:
+                home_team = f"{row.get('HOME_TEAM_CITY', '')} {home_team}".strip()
+            else:
+                home_id = row.get('HOME_TEAM_ID')
+                home_team = TEAM_NAME_MAPPING.get(home_id, '? Home ?')
+
+            score = f"{row.get('HOME_TEAM_SCORE', '?')} - {row.get('VISITOR_TEAM_SCORE', '?')}" if row.get('HOME_TEAM_SCORE') is not None else "-"
             status = row.get('GAME_STATUS_TEXT', 'À venir')
 
             rows.append({
@@ -67,19 +109,18 @@ def get_nba_games_today():
         return df
 
     except Exception as e:
-        st.error(f"Erreur nba_api : {str(e)}")
+        st.error(f"Erreur lors de la récupération des matchs : {str(e)}")
         return pd.DataFrame()
 
 # ─── PROBA PREDICTION ──────────────────────────────────────────────────────
 def predict_home_win_proba(row):
     if model is None:
-        # Simulation réaliste
         return round(random.uniform(0.50, 0.80), 3)
     
     try:
-        # Features dummy – adapte à ton .pkl réel
+        # Features dummy – adapte à ton modèle réel
         features = pd.DataFrame([{"home_adv": 1.0}])
-        proba = model.predict_proba(features)[0][1]  # assume classe 1 = home win
+        proba = model.predict_proba(features)[0][1]
         return round(proba, 3)
     except:
         return 0.60
@@ -98,10 +139,10 @@ while True:
         df_nba = get_nba_games_today()
         
         if df_nba.empty:
-            st.info("Aucun match NBA aujourd'hui ou erreur nba_api → simulation activée")
+            st.info("Aucun match NBA trouvé aujourd'hui ou erreur nba_api → simulation activée")
             df_nba = pd.DataFrame([
-                {"match": "Exemple : Lakers @ Celtics", "score": "112-108", "status": "Final"},
-                {"match": "Nuggets @ Suns", "score": "-", "status": "À venir"}
+                {"match": "Lakers @ Celtics (exemple)", "score": "112-108", "status": "Final"},
+                {"match": "Nuggets @ Suns (exemple)", "score": "-", "status": "À venir"}
             ])
         
         df_nba = add_value_bets(df_nba)
@@ -110,9 +151,9 @@ while True:
         if not df_nba.empty:
             safest = df_nba.loc[df_nba["proba_home"].idxmax()]
             st.success(f"**Pronostic le plus sûr** : Victoire domicile **{safest['match']}** → {safest['proba_home']:.0%}")
-            st.markdown(f"Score : {safest['score']} | Statut : {safest['status']}")
+            st.markdown(f"Score actuel : {safest['score']} | Statut : {safest['status']}")
         
-        # Tableau
+        # Tableau avec noms d'équipe
         disp = df_nba[["match", "score", "status", "proba_home", "cote_home_sim", "value_pct"]].copy()
         disp = disp.rename(columns={
             "match": "Match",
