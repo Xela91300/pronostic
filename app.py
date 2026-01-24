@@ -1,145 +1,126 @@
 import streamlit as st
 import pandas as pd
-import requests
-import time
+import joblib
 import random
 from datetime import datetime
 
 # ────────────────────────────────────────────────────────────────────────────
-# CONFIGURATION GLOBALE
+# CONFIGURATION
 # ────────────────────────────────────────────────────────────────────────────
 
-ODDS_API_KEY = "b9250f9ec1510f4136bdaca0b1f4f5cf"
-ODDS_BASE_URL = "https://api.the-odds-api.com/v4"
+st.set_page_config(page_title="Pronos IA Réels + Value Bets", layout="wide")
+st.title("Pronostics IA – Matchs réels, Modèle LightGBM & Value Bets")
+st.caption(f"Mis à jour : {datetime.now().strftime('%d/%m/%Y %H:%M')} | Massy, FR")
 
-st.set_page_config(page_title="Pronos IA + Cotes Réelles", layout="wide")
+tab_foot, tab_tennis, tab_nba = st.tabs(["Football ⚽", "Tennis 🎾", "NBA 🏀"])
 
-st.title("Pronostics IA Temps Réel + Value Bets ⚽🏀🎾")
-st.caption(f"Mis à jour : {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | Rafraîchissement auto")
-
-# Sidebar
-with st.sidebar:
-    st.header("Paramètres")
-    refresh_interval = st.slider("Intervalle de rafraîchissement (secondes)", 60, 300, 120)
-    region = st.selectbox("Région des bookmakers", ["eu", "uk", "us", "au"], index=0)
-    value_threshold = st.slider("Seuil minimum pour Value Bet (%)", 3, 20, 8)
-
-placeholder = st.empty()
-
-# ────────────────────────────────────────────────────────────────────────────
-# FONCTIONS
-# ────────────────────────────────────────────────────────────────────────────
-
-def fetch_odds_from_api():
-    """Récupère les cotes via The Odds API"""
-    url = (
-        f"{ODDS_BASE_URL}/sports/soccer/odds/"
-        f"?apiKey={ODDS_API_KEY}"
-        f"&regions={region}"
-        f"&markets=h2h"
-        f"&oddsFormat=decimal"
-    )
-
+# ─── CHARGEMENT DU MODELE LIGHTGBM ─────────────────────────────────────────
+@st.cache_resource
+def load_lightgbm_model():
     try:
-        response = requests.get(url, timeout=12)
-        st.session_state.api_status = response.status_code
-        st.session_state.api_message = response.text[:300] if response.status_code != 200 else ""
-
-        if response.status_code == 200:
-            data = response.json()
-            if not data:
-                return pd.DataFrame()
-
-            rows = []
-            for event in data:
-                home_team = event.get("home_team", "?")
-                away_team = event.get("away_team", "?")
-                bookmakers = event.get("bookmakers", [])
-
-                if bookmakers and bookmakers[0].get("markets"):
-                    market = bookmakers[0]["markets"][0]
-                    outcomes = {o["name"]: o["price"] for o in market["outcomes"]}
-                    rows.append({
-                        "match": f"{home_team} vs {away_team}",
-                        "ligue": event.get("sport_key", "?").replace("soccer_", "").upper(),
-                        "commence_time": event.get("commence_time", "?"),
-                        "cote_home": outcomes.get(home_team, 0.0),
-                        "cote_draw": outcomes.get("Draw", 0.0),
-                        "cote_away": outcomes.get(away_team, 0.0),
-                    })
-
-            return pd.DataFrame(rows)
-        else:
-            return pd.DataFrame()
-
+        model = joblib.load("football_model.pkl")
+        st.success("Modèle LightGBM chargé avec succès !")
+        return model
     except Exception as e:
-        st.session_state.api_status = -1
-        st.session_state.api_message = str(e)
+        st.warning("Modèle non trouvé → mode simulation activé")
+        return None
+
+model = load_lightgbm_model()
+
+# ─── DONNÉES RÉELLES (scraping léger via CSV public football-data.co.uk) ────
+@st.cache_data(ttl=3600)  # refresh toutes les heures
+def load_real_football_data():
+    try:
+        # Dernière saison ou actuelle – URL publique
+        url = "https://www.football-data.co.uk/mmz4281/2425/E0.csv"  # Premier League 24/25
+        df = pd.read_csv(url)
+        df = df[['Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG']].tail(20)  # 20 derniers matchs
+        df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
+        df["proba_home"] = 0.55 + random.uniform(-0.10, 0.15)  # simulation base
+        return df
+    except:
         return pd.DataFrame()
 
+# ─── PREDICTION AVEC MODELE OU SIMULATION ──────────────────────────────────
+def predict_proba(row):
+    if model is None:
+        return random.uniform(0.45, 0.85)
+    try:
+        # Adaptez les features à ton modèle entraîné
+        features = pd.DataFrame([{
+            "FTHG": row.get("FTHG", 0),
+            "FTAG": row.get("FTAG", 0),
+            # Ajoute tes vraies features si tu les as
+        }])
+        proba = model.predict_proba(features)[0][1]  # classe 1 = home win
+        return proba
+    except:
+        return random.uniform(0.45, 0.85)
 
-def add_ia_predictions(df):
-    """Ajoute des probabilités IA simulées (remplace par ton modèle LightGBM plus tard)"""
-    if df.empty:
-        return df
-
-    df["proba_home_ia"] = [round(random.uniform(0.42, 0.82), 3) for _ in range(len(df))]
-    df["value_home"] = df["proba_home_ia"] * df["cote_home"] - 1
-    df["value_pct"] = df["value_home"] * 100
+# ─── CALCUL VALUE BET ──────────────────────────────────────────────────────
+def add_value_bets(df):
+    df["cote_home_sim"] = df["proba_home"].apply(lambda p: round(1 / p * random.uniform(0.92, 0.98), 2))
+    df["value"] = df["proba_home"] * df["cote_home_sim"] - 1
+    df["value_pct"] = df["value"] * 100
     return df
 
+# ─── ONGLETS ───────────────────────────────────────────────────────────────
 
-# ────────────────────────────────────────────────────────────────────────────
-# BOUCLE PRINCIPALE – RAFRAÎCHISSEMENT AUTOMATIQUE
-# ────────────────────────────────────────────────────────────────────────────
+with tab_foot:
+    st.subheader("Football – Matchs récents / simulés live")
+    df_foot = load_real_football_data()
 
-while True:
-    with placeholder.container():
-        df_odds = fetch_odds_from_api()
+    if df_foot.empty:
+        st.info("Impossible de charger les données réelles → simulation activée")
+        df_foot = pd.DataFrame([
+            {"Date": "2026-01-24", "HomeTeam": "PSG", "AwayTeam": "Lyon", "FTHG": 2, "FTAG": 1},
+            {"Date": "2026-01-24", "HomeTeam": "Arsenal", "AwayTeam": "Man Utd", "FTHG": 1, "FTAG": 1},
+        ])
 
-        if df_odds.empty:
-            st.info("Aucune donnée récupérée pour le moment.")
-            if "api_status" in st.session_state:
-                status = st.session_state.api_status
-                if status == 401:
-                    st.error("Erreur 401 → Clé API invalide ou non reconnue")
-                elif status == 403:
-                    st.error("Erreur 403 → Accès interdit (clé non activée ?)")
-                elif status == 429:
-                    st.error("Erreur 429 → Quota dépassé (500 req/mois sur plan gratuit)")
-                elif status == -1:
-                    st.error(f"Erreur réseau ou timeout : {st.session_state.api_message}")
-                else:
-                    st.error(f"Code HTTP inattendu : {status}")
-                    if "api_message" in st.session_state:
-                        st.code(st.session_state.api_message)
-        else:
-            df = add_ia_predictions(df_odds)
+    df_foot["proba_home"] = df_foot.apply(predict_proba, axis=1)
+    df_foot = add_value_bets(df_foot)
 
-            st.subheader(f"Matchs trouvés : {len(df)} – Région : {region.upper()}")
+    # Pronostic le plus sûr
+    safest = df_foot.loc[df_foot["proba_home"].idxmax()]
+    st.success(f"**Pronostic le plus sûr** : Victoire **{safest['HomeTeam']}** vs {safest['AwayTeam']} → {safest['proba_home']:.0%}")
 
-            display_df = df[[
-                "match", "ligue", "cote_home", "proba_home_ia", "value_pct"
-            ]].copy()
+    # Tableau avec value bets
+    disp = df_foot[["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "proba_home", "cote_home_sim", "value_pct"]].copy()
+    disp.columns = ["Date", "Domicile", "Extérieur", "Buts D", "Buts E", "Proba Domicile", "Cote D simulée", "Value %"]
+    disp["Proba Domicile"] = disp["Proba Domicile"].apply(lambda x: f"{x:.0%}")
+    disp["Cote D simulée"] = disp["Cote D simulée"].round(2)
+    disp["Value %"] = disp["Value %"].round(1).apply(lambda x: f"+{x}%" if x > 5 else f"{x}%")
 
-            display_df["cote_home"] = display_df["cote_home"].round(2).astype(str)
-            display_df["proba_home_ia"] = (display_df["proba_home_ia"] * 100).round(0).astype(int).astype(str) + " %"
-            display_df["value_pct"] = display_df["value_pct"].round(1).apply(
-                lambda x: f"+{x}%" if x > value_threshold else f"{x}%"
-            )
+    def highlight_value(row):
+        if float(row["Value %"][:-1]) > 5:
+            return ["background-color: #ccffcc"] * len(row)
+        return [""] * len(row)
 
-            def style_value_bet(row):
-                if row["value_pct"].startswith("+") and float(row["value_pct"][1:-1]) > value_threshold:
-                    return ["background-color: #d4edda"] * len(row)
-                return [""] * len(row)
+    st.dataframe(disp.style.apply(highlight_value, axis=1), use_container_width=True)
 
-            st.dataframe(
-                display_df.style.apply(style_value_bet, axis=1),
-                use_container_width=True,
-                hide_index=True
-            )
 
-            st.caption("Value = (proba IA × cote domicile) - 1 → vert si opportunité détectée")
+with tab_tennis:
+    st.subheader("Tennis – Simulation (pas de scraping fiable gratuit)")
+    st.info("Pour tennis réel : utilise API-Sports Tennis ou Jeff Sackmann GitHub datasets")
+    # Exemple statique
+    df_tennis = pd.DataFrame([
+        {"match": "Alcaraz vs Paul", "proba_alcaraz": 0.78},
+        {"match": "Swiatek vs Kalinskaya", "proba_swiatek": 0.88},
+    ])
+    safest_t = df_tennis.loc[df_tennis["proba_alcaraz"].idxmax() if "proba_alcaraz" in df_tennis else 0]
+    st.success(f"**Plus sûr** : {safest_t['match']} → {safest_t.get('proba_alcaraz', safest_t.get('proba_swiatek', 0.80)):.0%}")
+    st.dataframe(df_tennis)
 
-    time.sleep(refresh_interval)
-    st.rerun()
+
+with tab_nba:
+    st.subheader("NBA – Simulation (pas de scraping fiable gratuit)")
+    st.info("Pour NBA réel : utilise nba_api ou basketball-reference scraping")
+    df_nba = pd.DataFrame([
+        {"match": "Timberwolves vs Warriors", "proba_home": 0.68},
+        {"match": "Celtics vs Bulls", "proba_home": 0.62},
+    ])
+    safest_n = df_nba.loc[df_nba["proba_home"].idxmax()]
+    st.success(f"**Plus sûr** : Victoire domicile {safest_n['match']} → {safest_n['proba_home']:.0%}")
+    st.dataframe(df_nba)
+
+st.caption("Pour cotes réelles → The Odds API (clé à tester). Pour scraping live → Selenium/BeautifulSoup mais pas sur Streamlit Cloud (bloqué). Contacte-moi pour adapter avec une API qui marche !")
