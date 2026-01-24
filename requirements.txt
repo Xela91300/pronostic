@@ -5,4 +5,4 @@ beautifulsoup4
 joblib
 lightgbm
 scikit-learn
-nba-api==1.4.1
+nba-api==1.11.3
