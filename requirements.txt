@@ -1,5 +1,6 @@
 streamlit
 pandas
+requests
 numpy
 lightgbm
 scikit-learn
