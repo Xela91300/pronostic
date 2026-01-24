@@ -66,7 +66,7 @@ except Exception as e:
 def parse_record_string(record):
 # Convertit ‘7-3’ en 0.70
 try:
-w, l = record.split(”-”)
+w, l = record.split(-)
 total = int(w) + int(l)
 return int(w) / total if total > 0 else 0.5
 except:
