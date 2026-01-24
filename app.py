@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from nba_api.stats.endpoints import scoreboardv2, boxscoretraditionalv2
+from nba_api.stats.endpoints import scoreboardv2
 import joblib
 import random
 import time
@@ -10,7 +10,7 @@ from datetime import datetime, date
 # CONFIGURATION
 # ────────────────────────────────────────────────────────────────────────────
 
-st.set_page_config(page_title="Pronos IA NBA Réel (nba_api)", layout="wide")
+st.set_page_config(page_title="Pronos IA NBA Réel (nba_api corrigé)", layout="wide")
 st.title("Pronostics NBA – Données réelles via nba_api + Value Bets")
 st.caption(f"Mis à jour : {datetime.now().strftime('%d/%m/%Y %H:%M')} CET | Massy, FR")
 
@@ -27,38 +27,45 @@ def load_model():
         st.success("Modèle LightGBM chargé !")
         return model
     except:
-        st.warning("Modèle non trouvé → simulation proba")
+        st.warning("Modèle non trouvé → simulation proba activée")
         return None
 
 model = load_model()
 
-# ─── RECUP MATCHS DU JOUR via nba_api ──────────────────────────────────────
+# ─── RECUP MATCHS DU JOUR via nba_api (colonnes corrigées) ─────────────────
 @st.cache_data(ttl=refresh_sec - 30)
 def get_nba_games_today():
     try:
-        # Scoreboard du jour
         sb = scoreboardv2.ScoreboardV2(game_date=date.today().strftime("%Y-%m-%d"))
-        games = sb.get_data_frames()[0]  # GameHeader
-        
-        if games.empty:
+        games_df = sb.get_data_frames()[0]  # GameHeader est généralement le premier DF
+
+        if games_df.empty:
             return pd.DataFrame()
-        
-        # Ajoute status et score live si disponible
+
+        # Colonnes réelles typiques (adapté à la doc nba_api) :
+        # VISITOR_TEAM_CITY + VISITOR_TEAM_NICKNAME, HOME_TEAM_CITY + HOME_TEAM_NICKNAME
+        # ou parfois VISITOR_TEAM_NAME / HOME_TEAM_NAME
         rows = []
-        for _, row in games.iterrows():
-            status = row.get('GAME_STATUS_TEXT', 'À venir')
+        for _, row in games_df.iterrows():
+            # Construction sécurisée des noms d'équipe
+            away_team = f"{row.get('VISITOR_TEAM_CITY', '')} {row.get('VISITOR_TEAM_NICKNAME', row.get('VISITOR_TEAM_NAME', '?'))}".strip()
+            home_team = f"{row.get('HOME_TEAM_CITY', '')} {row.get('HOME_TEAM_NICKNAME', row.get('HOME_TEAM_NAME', '?'))}".strip()
+
             score = f"{row.get('HOME_TEAM_SCORE', '?')} - {row.get('VISITOR_TEAM_SCORE', '?')}" if row.get('HOME_TEAM_SCORE') else "-"
-            
+            status = row.get('GAME_STATUS_TEXT', 'À venir')
+
             rows.append({
-                "match": f"{row['VISITOR_TEAM_NAME']} @ {row['HOME_TEAM_NAME']}",
-                "home_team": row['HOME_TEAM_NAME'],
-                "away_team": row['VISITOR_TEAM_NAME'],
+                "match": f"{away_team} @ {home_team}",
+                "home_team": home_team,
+                "away_team": away_team,
                 "score": score,
                 "status": status,
-                "game_id": row['GAME_ID']
+                "game_id": row.get('GAME_ID', '')
             })
-        
-        return pd.DataFrame(rows)
+
+        df = pd.DataFrame(rows)
+        return df
+
     except Exception as e:
         st.error(f"Erreur nba_api : {str(e)}")
         return pd.DataFrame()
@@ -66,13 +73,13 @@ def get_nba_games_today():
 # ─── PROBA PREDICTION ──────────────────────────────────────────────────────
 def predict_home_win_proba(row):
     if model is None:
-        # Simulation : home advantage + random
+        # Simulation réaliste
         return round(random.uniform(0.50, 0.80), 3)
     
     try:
-        # Features dummy – adapte à ton entraînement réel
-        features = pd.DataFrame([{"home_adv": 1.0, "dummy_stat": random.uniform(0, 10)}])
-        proba = model.predict_proba(features)[0][1]  # home win classe 1
+        # Features dummy – adapte à ton .pkl réel
+        features = pd.DataFrame([{"home_adv": 1.0}])
+        proba = model.predict_proba(features)[0][1]  # assume classe 1 = home win
         return round(proba, 3)
     except:
         return 0.60
@@ -85,7 +92,7 @@ def add_value_bets(df):
     df["value_pct"] = df["value"] * 100
     return df
 
-# ─── BOUCLE LIVE ───────────────────────────────────────────────────────────
+# ─── BOUCLE PRINCIPALE ─────────────────────────────────────────────────────
 while True:
     with placeholder.container():
         df_nba = get_nba_games_today()
@@ -107,7 +114,14 @@ while True:
         
         # Tableau
         disp = df_nba[["match", "score", "status", "proba_home", "cote_home_sim", "value_pct"]].copy()
-        disp.columns = ["Match", "Score", "Statut", "Proba Domicile", "Cote D simulée", "Value %"]
+        disp = disp.rename(columns={
+            "match": "Match",
+            "score": "Score",
+            "status": "Statut",
+            "proba_home": "Proba Domicile",
+            "cote_home_sim": "Cote D simulée",
+            "value_pct": "Value %"
+        })
         disp["Proba Domicile"] = disp["Proba Domicile"].apply(lambda x: f"{x:.0%}")
         disp["Cote D simulée"] = disp["Cote D simulée"].round(2)
         disp["Value %"] = disp["Value %"].round(1).apply(lambda x: f"+{x}%" if x > value_threshold else f"{x}%")
@@ -123,7 +137,7 @@ while True:
         
         st.dataframe(disp.style.apply(highlight, axis=1), use_container_width=True, hide_index=True)
         
-        st.caption("Données via nba_api (officiel NBA) – Proba via LightGBM ou simulation – Value = (proba × cote) - 1")
+        st.caption("Données via nba_api – Proba via LightGBM ou simulation – Value = (proba × cote) - 1")
     
     time.sleep(refresh_sec)
     st.rerun()
