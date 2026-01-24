@@ -1,143 +1,160 @@
 import streamlit as st
 import pandas as pd
+import requests
 import joblib
 import numpy as np
 import time
-from datetime import datetime
-import random  # simulation cotes / features
+from datetime import date
+import random  # pour simulation si besoin
 
 # ─── CONFIG ────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Pronos IA Live + Value Bets", layout="wide")
-st.title("Pronostics IA Temps Réel + Value Bets ⚽🎾🏀")
-st.caption(f"Dernière mise à jour : {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | Auto-refresh")
+API_KEY = "b9250f9ec1510f4136bdaca0b1f4f5cf"
+BASE_URL = "https://v3.football.api-sports.io/"
 
-# Charger le modèle LightGBM (football pour l'exemple – adapte pour tennis/nba)
+st.set_page_config(page_title="Pronos IA Live + Value", layout="wide")
+st.title("Pronostics IA Temps Réel + Value Bets ⚽")
+st.caption(f"Mis à jour : {pd.Timestamp.now().strftime('%d/%m/%Y %H:%M:%S')} | Refresh auto")
+
+# Charger modèle ML (football)
 @st.cache_resource
 def load_model():
     try:
-        model = joblib.load("football_model_calibrated.pkl")  # ou "models/football_model_calibrated.pkl"
-        st.success("Modèle LightGBM chargé avec succès !")
+        model = joblib.load("football_model.pkl")
+        st.success("Modèle LightGBM chargé !")
         return model
-    except Exception as e:
-        st.error(f"Erreur chargement modèle : {e}")
-        st.info("Utilisation d'une simulation par défaut. Crée un .pkl avec joblib.dump()")
+    except:
+        st.warning("Modèle non trouvé → simulation activée")
         return None
 
 model = load_model()
 
 # Sidebar
-sport = st.sidebar.selectbox("Sport", ["Football", "Tennis", "NBA"])
-ligues = st.sidebar.multiselect(
-    "Filtrer par ligue/tournoi",
-    options=["Premier League", "Ligue 1", "Bundesliga", "ATP Australian Open", "WTA AO", "NBA", "EuroLeague"],
-    default=["Premier League", "Ligue 1", "ATP Australian Open", "NBA"]
-)
 refresh_sec = st.sidebar.slider("Rafraîchissement (s)", 30, 180, 60)
-value_threshold = st.sidebar.slider("Seuil Value Bet (%)", 3, 15, 5)
+value_threshold = st.sidebar.slider("Seuil Value Bet (%)", 3, 20, 5)
 
 placeholder = st.empty()
 
-# ─── DONNÉES MATCHS SIMULÉES (remplace par API réelle) ──────────────────────
-def get_matches(sport, selected_ligues):
-    data = []
+# ─── RÉCUP MATCHS LIVE + JOUR via API ──────────────────────────────────────
+@st.cache_data(ttl=refresh_sec - 5)
+def fetch_matches():
+    today = date.today().strftime("%Y-%m-%d")
+    headers = {"x-apisports-key": API_KEY}
     
-    if sport == "Football":
-        raw = [
-            {"match": "Man City vs Wolves", "ligue": "Premier League", "status": "LIVE 65'", "home_xG": 2.1, "away_xG": 0.4, "form_home": 8, "form_away": 3},
-            {"match": "OM vs Lens", "ligue": "Ligue 1", "status": "LIVE 45'", "home_xG": 1.3, "away_xG": 1.1, "form_home": 6, "form_away": 5},
-            {"match": "Rennes vs Lorient", "ligue": "Ligue 1", "status": "À venir", "home_xG": 1.6, "away_xG": 0.9, "form_home": 7, "form_away": 4},
-            {"match": "Leverkusen vs Brême", "ligue": "Bundesliga", "status": "À venir", "home_xG": 2.0, "away_xG": 1.2, "form_home": 9, "form_away": 5},
-        ]
-    elif sport == "Tennis":
-        raw = [
-            {"match": "Ruud vs Cilic", "ligue": "ATP Australian Open", "status": "LIVE", "rank_diff": -120, "surface_win_p1": 0.78},
-            {"match": "Rybakina vs Valentova", "ligue": "WTA AO", "status": "LIVE", "rank_diff": -450, "surface_win_p1": 0.85},
-        ]
-    else:  # NBA
-        raw = [
-            {"match": "Minnesota vs Golden State", "ligue": "NBA", "status": "Q3", "net_rating_home": 8.2, "rest_diff": 1},
-            {"match": "Miami vs Utah", "ligue": "NBA", "status": "Mi-temps", "net_rating_home": 6.5, "rest_diff": 0},
-        ]
+    matches = []
     
-    df = pd.DataFrame(raw)
-    if not df.empty and "ligue" in df.columns:
-        df = df[df["ligue"].isin(selected_ligues)]
+    # Live
+    try:
+        resp_live = requests.get(f"{BASE_URL}fixtures/live", headers=headers, timeout=10)
+        if resp_live.status_code == 200:
+            matches.extend(resp_live.json().get("response", []))
+    except Exception as e:
+        st.error(f"Erreur live: {e}")
+    
+    # Aujourd'hui
+    try:
+        resp_today = requests.get(f"{BASE_URL}fixtures?date={today}", headers=headers, timeout=10)
+        if resp_today.status_code == 200:
+            today_list = resp_today.json().get("response", [])
+            live_ids = {m["fixture"]["id"] for m in matches}
+            for m in today_list:
+                if m["fixture"]["id"] not in live_ids:
+                    matches.append(m)
+    except Exception as e:
+        st.error(f"Erreur today: {e}")
+    
+    if not matches:
+        return pd.DataFrame()
+    
+    # Parsing simplifié
+    rows = []
+    for m in matches:
+        fixture = m["fixture"]
+        teams = m["teams"]
+        goals = m["goals"]
+        league = m["league"]
+        
+        rows.append({
+            "match": f"{teams['home']['name']} vs {teams['away']['name']}",
+            "ligue": league["name"],
+            "status": fixture["status"]["short"],
+            "elapsed": fixture["status"].get("elapsed", ""),
+            "score_home": goals["home"] if goals["home"] is not None else 0,
+            "score_away": goals["away"] if goals["away"] is not None else 0,
+            # Features pour modèle (simplifiées – adapte à ton entraînement)
+            "home_xG": random.uniform(0.5, 2.5),  # ← remplace par vraies si dispo via autre source
+            "away_xG": random.uniform(0.3, 2.0),
+            "form_home": random.randint(3, 10),
+            "form_away": random.randint(2, 9)
+        })
+    
+    df = pd.DataFrame(rows)
     return df
 
-# ─── SIMULATION COTES BOOKMAKER (remplace par The Odds API ou API-Sports odds/live) ──
-def get_bookmaker_odds(proba_home):
-    # Cote implicite = 1 / proba + marge ~5-8%
-    margin = random.uniform(0.05, 0.08)
-    cote_home = round(1 / (proba_home * (1 - margin)), 2) if proba_home > 0.05 else 50.0
-    return cote_home
-
-# ─── FEATURE ENGINEERING SIMPLIFIÉ + PRÉDICTION ─────────────────────────────
-def predict_with_model(df, sport):
+# ─── PREDICTION ML ─────────────────────────────────────────────────────────
+def predict_proba(df):
     if model is None:
-        # Fallback simulation
-        df["proba_home"] = [random.uniform(0.45, 0.85) for _ in df.index]
+        df["proba_home"] = [random.uniform(0.40, 0.85) for _ in df.index]
     else:
-        if sport == "Football":
-            # Exemple features attendues par ton modèle
+        try:
             X = df[["home_xG", "away_xG", "form_home", "form_away"]].fillna(0)
-            df["proba_home"] = model.predict_proba(X)[:, 0]  # classe 0 = home win (adapte selon ton target)
-        elif sport == "Tennis":
-            X = df[["rank_diff", "surface_win_p1"]].fillna(0)
-            df["proba_home"] = model.predict_proba(X)[:, 1]  # adapte
-        else:
-            X = df[["net_rating_home", "rest_diff"]].fillna(0)
-            df["proba_home"] = model.predict_proba(X)[:, 1]
-    
+            df["proba_home"] = model.predict_proba(X)[:, 0]  # assume classe 0 = home win
+        except:
+            df["proba_home"] = 0.50  # fallback si features mismatch
     return df
 
-# ─── CALCUL VALUE BET ──────────────────────────────────────────────────────
-def calculate_value(row):
-    proba = row["proba_home"]
-    cote = row["cote_book"]
-    if cote <= 1.01 or proba <= 0.01:
-        return 0.0
-    value = (proba * cote) - 1
-    return value
+# ─── COTES SIMULÉES + VALUE ────────────────────────────────────────────────
+def add_odds_and_value(df):
+    df["cote_home_sim"] = df["proba_home"].apply(
+        lambda p: round(1 / (p * random.uniform(0.92, 0.97)), 2) if p > 0.1 else 10.0
+    )
+    df["value"] = (df["proba_home"] * df["cote_home_sim"]) - 1
+    df["value_pct"] = df["value"] * 100
+    return df
 
-# ─── BOUCLE TEMPS RÉEL ─────────────────────────────────────────────────────
+# ─── BOUCLE LIVE ───────────────────────────────────────────────────────────
 while True:
     with placeholder.container():
-        df = get_matches(sport, ligues)
+        df = fetch_matches()
         
         if df.empty:
-            st.info("Aucun match correspond aux filtres ou au sport sélectionné.")
+            st.info("Aucun match aujourd'hui ou erreur API (clé/quota/endpoint ?)")
         else:
-            st.subheader(f"{sport} – {len(df)} matchs (ligues filtrées)")
-            
-            # Prédiction IA (recalcul à chaque refresh)
-            df = predict_with_model(df, sport)
-            
-            # Cotes simulées
-            df["cote_book"] = df["proba_home"].apply(get_bookmaker_odds)
-            
-            # Value bets
-            df["value"] = df.apply(calculate_value, axis=1)
-            df["value_pct"] = df["value"] * 100
-            
-            # Affichage
-            cols_to_show = ["match", "ligue", "status", "proba_home", "cote_book", "value_pct"]
-            display_df = df[cols_to_show].copy()
-            display_df["proba_home"] = display_df["proba_home"].apply(lambda x: f"{x:.0%}")
-            display_df["cote_book"] = display_df["cote_book"].apply(lambda x: f"{x:.2f}")
-            display_df["value_pct"] = display_df["value_pct"].apply(lambda x: f"+{x:.1f}%" if x > value_threshold else f"{x:.1f}%")
-            
-            def highlight_value(row):
-                if row["value_pct"].startswith("+") and float(row["value_pct"][1:-1]) > value_threshold:
-                    return ['background-color: #90EE90'] * len(row)
-                return [''] * len(row)
-            
-            st.dataframe(
-                display_df.style.apply(highlight_value, axis=1),
-                use_container_width=True,
-                hide_index=True
+            # Filtre ligue
+            all_ligues = sorted(df["ligue"].unique())
+            selected_ligues = st.multiselect(
+                "Filtrer ligues",
+                options=all_ligues,
+                default=all_ligues[:5] if len(all_ligues) > 5 else all_ligues
             )
+            if selected_ligues:
+                df = df[df["ligue"].isin(selected_ligues)]
             
-            st.caption("Value bet = (proba × cote) - 1 → vert si > seuil choisi")
+            if df.empty:
+                st.info("Aucun match dans les ligues sélectionnées")
+            else:
+                df = predict_proba(df)
+                df = add_odds_and_value(df)
+                
+                st.subheader(f"Matchs ({len(df)}) – {pd.Timestamp.now().strftime('%H:%M:%S')}")
+                
+                display_cols = ["match", "ligue", "status", "elapsed", "score_home", "score_away", "proba_home", "cote_home_sim", "value_pct"]
+                disp = df[display_cols].copy()
+                disp["proba_home"] = disp["proba_home"].apply(lambda x: f"{x:.0%}")
+                disp["cote_home_sim"] = disp["cote_home_sim"].apply(lambda x: f"{x:.2f}")
+                disp["value_pct"] = disp["value_pct"].apply(lambda x: f"+{x:.1f}%" if x > value_threshold else f"{x:.1f}%")
+                
+                def highlight_value(row):
+                    if row["value_pct"].startswith("+") and float(row["value_pct"][1:-1]) > value_threshold:
+                        return ['background-color: #ccffcc'] * len(row)
+                    return [''] * len(row)
+                
+                st.dataframe(
+                    disp.style.apply(highlight_value, axis=1),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                st.caption("Value = (proba × cote) - 1 → vert si > seuil | Cotes simulées (remplace par API odds si plan payant)")
     
     time.sleep(refresh_sec)
     st.rerun()
