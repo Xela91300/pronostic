@@ -1,8 +1,8 @@
-“””
-Pronostiqueur NBA Optimisé - Sans Timeout
-Utilise leaguestandings au lieu de boxscore pour éviter les timeouts
-Features: Win%, forme récente, facteur domicile
-“””
+# Pronostiqueur NBA Optimisé - Sans Timeout
+
+# Utilise leaguestandings au lieu de boxscore pour éviter les timeouts
+
+# Features: Win%, forme récente, facteur domicile
 
 import pandas as pd
 import numpy as np
@@ -36,10 +36,8 @@ TEAM_DICT = {team[‘id’]: team[‘abbreviation’] for team in team_list}
 
 @st.cache_data(ttl=CACHE_TTL)
 def get_team_statistics():
-“””
-Récupère les statistiques d’équipe depuis les standings
-Un seul appel API pour toutes les équipes (rapide)
-“””
+# Récupère les statistiques d’équipe depuis les standings
+# Un seul appel API pour toutes les équipes (rapide)
 try:
 standings = leaguestandings.LeagueStandings()
 standings_df = standings.get_data_frames()[0]
@@ -66,7 +64,7 @@ except Exception as e:
 ```
 
 def parse_record_string(record):
-“”“Convertit ‘7-3’ en 0.70”””
+# Convertit ‘7-3’ en 0.70
 try:
 w, l = record.split(’-’)
 total = int(w) + int(l)
@@ -75,10 +73,8 @@ except:
 return 0.5
 
 def fetch_games_for_date(target_date, team_stats):
-“””
-Récupère les matchs pour une date donnée
-Utilise les stats pré-chargées (pas d’appel boxscore)
-“””
+# Récupère les matchs pour une date donnée
+# Utilise les stats pré-chargées (pas d’appel boxscore)
 try:
 date_str = target_date.strftime(”%Y-%m-%d”)
 scoreboard = scoreboardv2.ScoreboardV2(game_date=date_str)
@@ -122,7 +118,7 @@ except Exception as e:
 ```
 
 def fetch_multiple_days(num_days, team_stats):
-“”“Récupère les matchs sur plusieurs jours”””
+# Récupère les matchs sur plusieurs jours
 all_games = []
 
 ```
@@ -154,7 +150,7 @@ return pd.DataFrame()
 # ============================================================================
 
 def engineer_features(df):
-“”“Crée les features pour le modèle”””
+# Crée les features pour le modèle
 df = df.copy()
 
 ```
@@ -182,7 +178,7 @@ return df
 # ============================================================================
 
 def train_or_load_model(df):
-“”“Charge le modèle existant ou en entraîne un nouveau”””
+# Charge le modèle existant ou en entraîne un nouveau
 features = [‘win_pct_diff’, ‘form_diff’, ‘home_advantage’]
 
 ```
@@ -232,7 +228,7 @@ return model, features
 ```
 
 def predict_games(df, model, features):
-“”“Génère les prédictions”””
+# Génère les prédictions
 df = df.copy()
 X = df[features]
 
@@ -322,7 +318,7 @@ with tab3:
 ```
 
 def display_upcoming_games(df, threshold):
-“”“Affiche les matchs à venir”””
+# Affiche les matchs à venir
 st.header(“Pronostics du jour”)
 
 ```
@@ -361,7 +357,7 @@ else:
 ```
 
 def display_completed_games(df):
-“”“Affiche l’historique”””
+# Affiche l’historique
 st.header(“Matchs récents”)
 
 ```
@@ -388,7 +384,7 @@ st.dataframe(display_df.drop('Victoire Dom.', axis=1), use_container_width=True,
 ```
 
 def display_statistics(df, model, features):
-“”“Affiche les statistiques du modèle”””
+# Affiche les statistiques du modèle
 st.header(“Performance du modèle”)
 
 ```
@@ -421,7 +417,7 @@ st.bar_chart(importance_df.set_index('Feature'))
 ```
 
 def create_dummy_data():
-“”“Crée des données simulées en cas d’échec API”””
+# Crée des données simulées en cas d’échec API
 return pd.DataFrame([
 {
 ‘game_id’: ‘sim1’, ‘date’: date.today().strftime(’%Y-%m-%d’),
