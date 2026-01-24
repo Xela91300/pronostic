@@ -5,3 +5,4 @@ beautifulsoup4
 joblib
 lightgbm
 scikit-learn
+nba_api
