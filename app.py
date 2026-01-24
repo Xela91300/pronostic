@@ -354,7 +354,7 @@ else:
 
 def display_completed_games(df):
 # Affiche l’historique
-st.header(“Matchs recents”)
+st.header(Matchs recents)
 
 ```
 if df.empty:
