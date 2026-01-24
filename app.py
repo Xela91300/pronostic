@@ -22,7 +22,7 @@ from lightgbm import LGBMClassifier
 
 # ============================================================================
 
-MODEL_PATH = “nba_model_v2.pkl”
+MODEL_PATH = “nba_model.pkl”
 CACHE_TTL = 3600  # 1 heure
 
 team_list = teams.get_teams()
