@@ -5,8 +5,4 @@ beautifulsoup4
 joblib
 lightgbm
 scikit-learn
-nba_api>=1.11.3
-# ou pour forcer la toute dernière :
-https://github.com/swar/nba_api.git@master
-# Autres dépendances si tu en as (streamlit, pandas, lightgbm, joblib, numpy...)
-git+https://github.com/swar/nba_api.git@master
+nba-api==1.4.1
