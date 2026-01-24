@@ -7,7 +7,7 @@ import time
 import os
 from datetime import datetime, date
 
-# Mapping ID équipe → Nom (stable et complet)
+# Mapping ID → Nom d'équipe (complet et fiable)
 TEAM_MAPPING = {
     1610612737: "Atlanta Hawks",
     1610612738: "Boston Celtics",
@@ -46,32 +46,35 @@ TEAM_MAPPING = {
 # ────────────────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="Pronos NBA Réel + Boxscore", layout="wide")
-st.title("Pronostics NBA – Matchs réels + Boxscore Avancé")
+st.title("Pronostics NBA – Matchs réels & Boxscore Avancé")
 st.caption(f"Mis à jour : {datetime.now().strftime('%d/%m/%Y %H:%M')} CET")
 
 refresh_sec = st.sidebar.slider("Rafraîchissement (secondes)", 120, 600, 300)
 value_threshold = st.sidebar.slider("Seuil Value Bet (%)", 5, 20, 10)
 
-# Debug existence du modèle
-if os.path.exists("nba_model.pkl"):
-    st.success("Fichier nba_model.pkl détecté (taille : {} octets)".format(os.path.getsize("nba_model.pkl")))
-else:
-    st.error("Fichier nba_model.pkl INTRouvable dans le dossier racine")
+placeholder = st.empty()
 
-# ─── CHARGEMENT MODELE ─────────────────────────────────────────────────────
+# Debug fichiers présents
+st.write("Fichiers dans le dossier racine :", os.listdir("."))
+
+# ─── CHARGEMENT DU MODELE ──────────────────────────────────────────────────
 @st.cache_resource
 def load_model():
+    model_path = "nba_model.pkl"
+    if not os.path.exists(model_path):
+        st.error(f"Fichier {model_path} introuvable")
+        return None
     try:
-        model = joblib.load("nba_model.pkl")
-        st.success("Modèle LightGBM chargé avec succès !")
+        model = joblib.load(model_path)
+        st.success(f"Modèle chargé depuis {model_path} (taille : {os.path.getsize(model_path)} octets)")
         return model
     except Exception as e:
-        st.warning(f"Échec chargement modèle : {str(e)} → simulation activée")
+        st.error(f"Échec chargement modèle : {str(e)}")
         return None
 
 model = load_model()
 
-# ─── RÉCUP MATCHS + BOXSCORE ──────────────────────────────────────────────
+# ─── RÉCUP MATCHS + BOXSCORE AVANCÉ ────────────────────────────────────────
 @st.cache_data(ttl=refresh_sec - 30)
 def get_nba_games():
     try:
@@ -79,14 +82,13 @@ def get_nba_games():
         games_df = sb.get_data_frames()[0]
 
         if games_df.empty:
-            st.info("Aucun match aujourd'hui selon scoreboardv2")
+            st.info("Aucun match NBA aujourd'hui selon scoreboardv2")
             return pd.DataFrame()
 
         rows = []
         for _, row in games_df.iterrows():
             away_id = row.get('VISITOR_TEAM_ID')
             home_id = row.get('HOME_TEAM_ID')
-
             away = TEAM_MAPPING.get(away_id, f"Visiteur ID {away_id}")
             home = TEAM_MAPPING.get(home_id, f"Domicile ID {home_id}")
 
@@ -96,8 +98,7 @@ def get_nba_games():
             status = row.get('GAME_STATUS_TEXT', 'À venir')
             game_id = row.get('GAME_ID', '')
 
-            # Boxscore avancé (seulement si match en cours ou terminé)
-            box_info = "Pas de boxscore avancé"
+            box_info = "Pas de boxscore avancé disponible"
             if game_id and ("Final" in status or "Q" in status or "Half" in status):
                 try:
                     box = boxscoreadvancedv2.BoxScoreAdvancedV2(game_id=game_id)
@@ -107,10 +108,8 @@ def get_nba_games():
                         pace = stats['PACE'].mean() if 'PACE' in stats.columns else "?"
                         net = stats['NET_RATING'].mean() if 'NET_RATING' in stats.columns else "?"
                         box_info = f"Pace : {pace:.1f} | Net Rating : {net:.1f}"
-                    else:
-                        box_info = "Boxscore vide"
-                except Exception as e:
-                    box_info = f"Erreur boxscore : {str(e)[:60]}..."
+                except Exception as box_err:
+                    box_info = f"Erreur boxscore : {str(box_err)[:80]}..."
 
             rows.append({
                 "match": f"{away} @ {home}",
@@ -122,18 +121,18 @@ def get_nba_games():
         return pd.DataFrame(rows)
 
     except Exception as e:
-        st.error(f"Erreur nba_api globale : {str(e)}")
+        st.error(f"Erreur globale nba_api : {str(e)}")
         return pd.DataFrame()
 
-# ─── PREDICTION & VALUE BET ────────────────────────────────────────────────
+# ─── PRÉDICTION & VALUE BET ────────────────────────────────────────────────
 def predict_home_proba(row):
     if model is None:
         return round(random.uniform(0.50, 0.80), 3)
     try:
-        # Features fictives – adapte à ton modèle réel
         features = pd.DataFrame([{"home_adv": 1.0}])
         return round(model.predict_proba(features)[0][1], 3)
-    except:
+    except Exception as e:
+        st.warning(f"Erreur prédiction : {str(e)} → fallback simulation")
         return 0.60
 
 def add_value_bets(df):
@@ -142,7 +141,7 @@ def add_value_bets(df):
     df["value_pct"] = (df["proba_home"] * df["cote_home"] - 1) * 100
     return df
 
-# ─── BOUCLE RAFRAICHISSEMENT ──────────────────────────────────────────────
+# ─── BOUCLE PRINCIPALE ─────────────────────────────────────────────────────
 while True:
     with placeholder.container():
         df = get_nba_games()
@@ -150,7 +149,7 @@ while True:
         if df.empty:
             st.info("Aucun match trouvé → simulation activée")
             df = pd.DataFrame([
-                {"match": "Lakers @ Celtics (exemple)", "score": "112-108", "status": "Final", "box_advanced": "Pace : 98.5 | Net : +5.2"},
+                {"match": "Lakers @ Celtics (exemple)", "score": "112-108", "status": "Final", "box_advanced": "Pace : 98.5 | Net Rating : +5.2"},
                 {"match": "Nuggets @ Suns (exemple)", "score": "-", "status": "À venir", "box_advanced": "Pas de données"}
             ])
 
@@ -161,16 +160,25 @@ while True:
             best = df.loc[df["proba_home"].idxmax()]
             st.success(f"**Pronostic le plus sûr** : {best['match']} (domicile) → {best['proba_home']:.0%}")
             st.markdown(f"Score : {best['score']} | Statut : {best['status']}")
-            st.markdown(f"**Boxscore avancé** : {best['box_advanced']}")
+            if best['box_advanced']:
+                st.markdown(f"**Boxscore avancé** : {best['box_advanced']}")
 
         # Tableau
         disp = df[["match", "score", "status", "box_advanced", "proba_home", "cote_home", "value_pct"]].copy()
-        disp.columns = ["Match", "Score", "Statut", "Box Avancé", "Proba Domicile", "Cote D", "Value %"]
+        disp = disp.rename(columns={
+            "match": "Match",
+            "score": "Score",
+            "status": "Statut",
+            "box_advanced": "Box Avancé",
+            "proba_home": "Proba Domicile",
+            "cote_home": "Cote D",
+            "value_pct": "Value %"
+        })
         disp["Proba Domicile"] = disp["Proba Domicile"].apply(lambda x: f"{x:.0%}")
         disp["Cote D"] = disp["Cote D"].round(2)
         disp["Value %"] = disp["Value %"].round(1).apply(lambda x: f"+{x}%" if x > value_threshold else f"{x}%")
 
-        def highlight_value(row):
+        def highlight(row):
             try:
                 val = float(row["Value %"][:-1])
                 if val > value_threshold:
@@ -179,9 +187,9 @@ while True:
                 pass
             return [""] * len(row)
 
-        st.dataframe(disp.style.apply(highlight_value, axis=1), use_container_width=True, hide_index=True)
+        st.dataframe(disp.style.apply(highlight, axis=1), use_container_width=True, hide_index=True)
 
-        st.caption("Données via nba_api – Boxscore avancé seulement pour matchs en cours/terminés – Value = (proba × cote) - 1")
+        st.caption("Données via nba_api – Box avancé seulement si match en cours/terminé – Proba via LightGBM ou simulation")
 
     time.sleep(refresh_sec)
     st.rerun()
