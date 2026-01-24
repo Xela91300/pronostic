@@ -1,8 +1,8 @@
-# Pronostiqueur NBA Optimisé - Sans Timeout
+# Pronostiqueur NBA Optimise - Sans Timeout
 
-# Utilise leaguestandings au lieu de boxscore pour éviter les timeouts
+# Utilise leaguestandings au lieu de boxscore pour eviter les timeouts
 
-# Features: Win%, forme récente, facteur domicile
+# Features: Win%, forme recente, facteur domicile
 
 import pandas as pd
 import numpy as np
@@ -30,14 +30,14 @@ TEAM_DICT = {team[‘id’]: team[‘abbreviation’] for team in team_list}
 
 # ============================================================================
 
-# RÉCUPÉRATION DES DONNÉES
+# RECUPERATION DES DONNEES
 
 # ============================================================================
 
 @st.cache_data(ttl=CACHE_TTL)
 def get_team_statistics():
-# Récupère les statistiques d’équipe depuis les standings
-# Un seul appel API pour toutes les équipes (rapide)
+# Recupere les statistiques d’equipe depuis les standings
+# Un seul appel API pour toutes les equipes (rapide)
 try:
 standings = leaguestandings.LeagueStandings()
 standings_df = standings.get_data_frames()[0]
@@ -59,7 +59,7 @@ standings_df = standings.get_data_frames()[0]
     return stats_dict
 
 except Exception as e:
-    st.error(f"Erreur récupération standings: {e}")
+    st.error(f"Erreur recuperation standings: {e}")
     return {}
 ```
 
@@ -73,8 +73,8 @@ except:
 return 0.5
 
 def fetch_games_for_date(target_date, team_stats):
-# Récupère les matchs pour une date donnée
-# Utilise les stats pré-chargées (pas d’appel boxscore)
+# Recupere les matchs pour une date donnee
+# Utilise les stats pre-chargees (pas d’appel boxscore)
 try:
 date_str = target_date.strftime(”%Y-%m-%d”)
 scoreboard = scoreboardv2.ScoreboardV2(game_date=date_str)
@@ -89,7 +89,7 @@ games_df = scoreboard.get_data_frames()[0]
         home_id = game['HOME_TEAM_ID']
         away_id = game['VISITOR_TEAM_ID']
         
-        # Récupérer stats depuis le dict pré-chargé
+        # Recuperer stats depuis le dict pre-charge
         home_stats = team_stats.get(home_id, {})
         away_stats = team_stats.get(away_id, {})
         
@@ -118,7 +118,7 @@ except Exception as e:
 ```
 
 def fetch_multiple_days(num_days, team_stats):
-# Récupère les matchs sur plusieurs jours
+# Recupere les matchs sur plusieurs jours
 all_games = []
 
 ```
@@ -145,21 +145,21 @@ return pd.DataFrame()
 
 # ============================================================================
 
-# PRÉPARATION DES FEATURES
+# PREPARATION DES FEATURES
 
 # ============================================================================
 
 def engineer_features(df):
-# Crée les features pour le modèle
+# Cree les features pour le modele
 df = df.copy()
 
 ```
-# Features différentielles
+# Features differentielles
 df['win_pct_diff'] = df['home_win_pct'] - df['away_win_pct']
 df['form_diff'] = df['home_form'] - df['away_form']
 df['home_advantage'] = 0.06  # ~6% avantage domicile NBA
 
-# Target (seulement pour matchs terminés)
+# Target (seulement pour matchs termines)
 df['home_win'] = np.nan
 finished_mask = ~df['status'].str.contains('PM|venir', case=False, na=False)
 df.loc[finished_mask, 'home_win'] = (df.loc[finished_mask, 'home_score'] > 
@@ -173,30 +173,30 @@ return df
 
 # ============================================================================
 
-# MODÈLE MACHINE LEARNING
+# MODELE MACHINE LEARNING
 
 # ============================================================================
 
 def train_or_load_model(df):
-# Charge le modèle existant ou en entraîne un nouveau
+# Charge le modele existant ou en entraine un nouveau
 features = [‘win_pct_diff’, ‘form_diff’, ‘home_advantage’]
 
 ```
-# Tenter de charger modèle existant
+# Tenter de charger modele existant
 if os.path.exists(MODEL_PATH):
     try:
         model = joblib.load(MODEL_PATH)
-        st.sidebar.success("✅ Modèle chargé")
+        st.sidebar.success("Modele charge")
         return model, features
     except:
-        st.sidebar.warning("⚠️ Rechargement modèle échoué")
+        st.sidebar.warning("Rechargement modele echoue")
 
-# Entraîner nouveau modèle
+# Entrainer nouveau modele
 train_data = df[df['home_win'].notna()].copy()
 
 if len(train_data) < 30:
-    # Modèle par défaut si données insuffisantes
-    st.sidebar.warning("⚠️ Données insuffisantes - modèle par défaut")
+    # Modele par defaut si donnees insuffisantes
+    st.sidebar.warning("Donnees insuffisantes - modele par defaut")
     model = LGBMClassifier(n_estimators=50, random_state=42, verbosity=-1)
     X_dummy = pd.DataFrame({
         'win_pct_diff': np.random.uniform(-0.3, 0.3, 150),
@@ -207,7 +207,7 @@ if len(train_data) < 30:
                X_dummy['home_advantage'] + np.random.normal(0, 0.1, 150) > 0).astype(int)
     model.fit(X_dummy, y_dummy)
 else:
-    # Entraînement sur vraies données
+    # Entrainement sur vraies donnees
     X = train_data[features]
     y = train_data['home_win']
     model = LGBMClassifier(
@@ -220,7 +220,7 @@ else:
     model.fit(X, y)
     
     accuracy = (model.predict(X) == y).mean()
-    st.sidebar.success(f"✅ Modèle entraîné ({len(train_data)} matchs, précision: {accuracy:.1%})")
+    st.sidebar.success(f"Modele entraine ({len(train_data)} matchs, precision: {accuracy:.1%})")
 
 # Sauvegarder
 joblib.dump(model, MODEL_PATH)
@@ -228,17 +228,17 @@ return model, features
 ```
 
 def predict_games(df, model, features):
-# Génère les prédictions
+# Genere les predictions
 df = df.copy()
 X = df[features]
 
 ```
-# Probabilités
+# Probabilites
 probas = model.predict_proba(X)
 df['proba_home'] = probas[:, 1]
 df['proba_away'] = probas[:, 0]
 
-# Cotes simulées (basées sur probas)
+# Cotes simulees (basees sur probas)
 df['cote_home'] = df['proba_home'].apply(
     lambda p: round(1 / max(p, 0.05) * random.uniform(0.93, 0.97), 2)
 )
@@ -251,7 +251,7 @@ df['value_home'] = (df['proba_home'] * df['cote_home'] - 1) * 100
 df['value_away'] = (df['proba_away'] * df['cote_away'] - 1) * 100
 
 df['best_bet'] = df.apply(
-    lambda r: 'Domicile' if r['value_home'] > r['value_away'] else 'Extérieur',
+    lambda r: 'Domicile' if r['value_home'] > r['value_away'] else 'Exterieur',
     axis=1
 )
 df['best_value'] = df[['value_home', 'value_away']].max(axis=1)
@@ -271,31 +271,31 @@ st.set_page_config(page_title=“NBA Pronostics”, page_icon=“🏀”, layout
 
 ```
 st.title("🏀 Pronostiqueur NBA")
-st.caption("Prédictions basées sur statistiques réelles via NBA API")
+st.caption("Predictions basees sur statistiques reelles via NBA API")
 
 # Sidebar
-st.sidebar.header("⚙️ Paramètres")
-days = st.sidebar.slider("Jours de données", 1, 10, 5)
+st.sidebar.header("Parametres")
+days = st.sidebar.slider("Jours de donnees", 1, 10, 5)
 value_threshold = st.sidebar.slider("Seuil value bet (%)", 0, 15, 5)
 
-# Récupération données
-with st.spinner("🔄 Chargement des statistiques NBA..."):
+# Recuperation donnees
+with st.spinner("Chargement des statistiques NBA..."):
     team_stats = get_team_statistics()
     
     if not team_stats:
-        st.error("❌ Impossible de récupérer les données NBA")
+        st.error("Impossible de recuperer les donnees NBA")
         st.stop()
     
-    st.success(f"✅ Stats chargées pour {len(team_stats)} équipes")
+    st.success(f"Stats chargees pour {len(team_stats)} equipes")
 
-with st.spinner("🔄 Récupération des matchs..."):
+with st.spinner("Recuperation des matchs..."):
     games_df = fetch_multiple_days(days, team_stats)
     
     if games_df.empty:
-        st.warning("⚠️ Aucun match trouvé - Utilisation de données simulées")
+        st.warning("Aucun match trouve - Utilisation de donnees simulees")
         games_df = create_dummy_data()
 
-# Préparation
+# Preparation
 games_df = engineer_features(games_df)
 model, features = train_or_load_model(games_df)
 predictions = predict_games(games_df, model, features)
@@ -305,7 +305,7 @@ upcoming = predictions[predictions['status'].str.contains('PM|venir', case=False
 completed = predictions[predictions['home_win'].notna()]
 
 # Affichage
-tab1, tab2, tab3 = st.tabs(["📅 Matchs à venir", "📊 Historique", "📈 Statistiques"])
+tab1, tab2, tab3 = st.tabs(["Matchs a venir", "Historique", "Statistiques"])
 
 with tab1:
     display_upcoming_games(upcoming, value_threshold)
@@ -318,12 +318,12 @@ with tab3:
 ```
 
 def display_upcoming_games(df, threshold):
-# Affiche les matchs à venir
+# Affiche les matchs a venir
 st.header(“Pronostics du jour”)
 
 ```
 if df.empty:
-    st.info("Aucun match prévu aujourd'hui")
+    st.info("Aucun match prevu aujourd'hui")
     return
 
 # Tri par value
@@ -347,22 +347,18 @@ st.dataframe(display_df, use_container_width=True, hide_index=True)
 # Meilleur pari
 best = df.iloc[0]
 if best['best_value'] > threshold:
-    st.success(f"""
-    **🎯 Pari recommandé:** {best['match']}  
-    **Prédiction:** {best['best_bet']} ({best['proba_home']:.1%} domicile)  
-    **Value:** {best['best_value']:+.1f}%
-    """)
+    st.success(f"Pari recommande: {best['match']} - Prediction: {best['best_bet']} ({best['proba_home']:.1%} domicile) - Value: {best['best_value']:+.1f}%")
 else:
-    st.info("Aucune value bet significative détectée")
+    st.info("Aucune value bet significative detectee")
 ```
 
 def display_completed_games(df):
 # Affiche l’historique
-st.header(“Matchs récents”)
+st.header(“Matchs recents”)
 
 ```
 if df.empty:
-    st.info("Aucun match récent")
+    st.info("Aucun match recent")
     return
 
 df = df.sort_values('date', ascending=False).head(20)
@@ -375,7 +371,7 @@ display_df = df[[
 display_df['proba_home'] = display_df['proba_home'].apply(lambda x: f"{x:.1%}")
 display_df['correct'] = ((display_df['proba_home'].str.rstrip('%').astype(float) > 50) == 
                           (display_df['home_win'] == 1))
-display_df['correct'] = display_df['correct'].map({True: '✅', False: '❌'})
+display_df['correct'] = display_df['correct'].map({True: 'OK', False: 'KO'})
 
 display_df.columns = ['Date', 'Match', 'Score Dom.', 'Score Ext.', 
                       'Proba Dom.', 'Victoire Dom.', 'Correct']
@@ -384,12 +380,12 @@ st.dataframe(display_df.drop('Victoire Dom.', axis=1), use_container_width=True,
 ```
 
 def display_statistics(df, model, features):
-# Affiche les statistiques du modèle
-st.header(“Performance du modèle”)
+# Affiche les statistiques du modele
+st.header(“Performance du modele”)
 
 ```
 if len(df) < 10:
-    st.warning("Données insuffisantes pour statistiques")
+    st.warning("Donnees insuffisantes pour statistiques")
     return
 
 col1, col2, col3 = st.columns(3)
@@ -397,14 +393,14 @@ col1, col2, col3 = st.columns(3)
 # Accuracy
 predictions = model.predict(df[features])
 accuracy = (predictions == df['home_win']).mean()
-col1.metric("Précision globale", f"{accuracy:.1%}")
+col1.metric("Precision globale", f"{accuracy:.1%}")
 
 # Win% domicile
 home_win_rate = df['home_win'].mean()
 col2.metric("Victoires domicile", f"{home_win_rate:.1%}")
 
-# Matchs analysés
-col3.metric("Matchs analysés", len(df))
+# Matchs analyses
+col3.metric("Matchs analyses", len(df))
 
 # Importance features
 st.subheader("Importance des features")
@@ -417,7 +413,7 @@ st.bar_chart(importance_df.set_index('Feature'))
 ```
 
 def create_dummy_data():
-# Crée des données simulées en cas d’échec API
+# Cree des donnees simulees en cas d’echec API
 return pd.DataFrame([
 {
 ‘game_id’: ‘sim1’, ‘date’: date.today().strftime(’%Y-%m-%d’),
