@@ -381,7 +381,7 @@ st.dataframe(display_df.drop("Victoire Dom.", axis=1), use_container_width=True,
 
 def display_statistics(df, model, features):
 # Affiche les statistiques du modele
-st.header(“Performance du modele”)
+st.header(Performance du modele)
 
 ```
 if len(df) < 10:
