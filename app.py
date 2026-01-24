@@ -416,20 +416,20 @@ def create_dummy_data():
 # Cree des donnees simulees en cas d’echec API
 return pd.DataFrame([
 {
-“game_id”: “sim1”, “date”: date.today().strftime(”%Y-%m-%d”),
-“home_id”: 1610612747, “away_id”: 1610612738,
-“home_team”: “LAL”, “away_team”: “BOS”,
-“home_score”: 0, “away_score”: 0, “status”: “7:00 PM ET”,
-“home_win_pct”: 0.62, “away_win_pct”: 0.58,
-“home_form”: 0.70, “away_form”: 0.60
+game_id: sim1, date: date.today().strftime(%Y-%m-%d),
+home_id: 1610612747, away_id: 1610612738,
+home_team: LAL, away_team: BOS,
+home_score: 0, away_score: 0, status: 7:00 PM ET,
+home_win_pct: 0.62, away_win_pct: 0.58,
+home_form: 0.70, away_form: 0.60
 },
 {
-“game_id”: “sim2”, “date”: date.today().strftime(”%Y-%m-%d”),
-“home_id”: 1610612744, “away_id”: 1610612751,
-“home_team”: “GSW”, “away_team”: “BKN”,
-“home_score”: 0, “away_score”: 0, “status”: “7:30 PM ET”,
-“home_win_pct”: 0.55, “away_win_pct”: 0.48,
-“home_form”: 0.50, “away_form”: 0.40
+game_id: sim2, date: date.today().strftime(%Y-%m-%d),
+home_id: 1610612744, away_id: 1610612751,
+home_team: GSW, away_team: BKN,
+home_score: 0, away_score: 0, status: 7:30 PM ET,
+home_win_pct: 0.55, away_win_pct: 0.48,
+home_form: 0.50, away_form: 0.40
 }
 ])
 
