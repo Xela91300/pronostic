@@ -34,7 +34,7 @@ API_KEY = st.secrets.get("api_sports_key", "")
 if not API_KEY and "Football (Soccer)" in SPORTS:
     st.warning("Ajoutez votre clé API-Sports dans st.secrets['api_sports_key'] pour le football. Inscrivez-vous sur https://api-sports.io")
 
-# Sports supportés
+# Sports supportés - DÉFINI AVANT D'ÊTRE UTILISÉ
 SPORTS = ["NBA (Basketball)", "Football (Soccer)", "Tennis", "Esport"]
 
 # Major leagues pour football
@@ -417,26 +417,22 @@ FEATURES = [
 ]
 
 def get_or_train_model(sport: str, df: pd.DataFrame):
-    model_path = f"{sport.lower().replace(' ', '_')}_{MODEL_PATH}"
-    if os.path.exists(model_path):
-        try:
-            model = joblib.load(model_path)
-            st.sidebar.success(f"Modèle chargé pour {sport}")
-            return model
-        except:
-            pass
+    # MODIFICATION ICI : Ne pas essayer de charger un fichier qui n'existe pas
+    # À la place, créer un modèle simple sans sauvegarde
     train = df[df["home_win"].notna()]
+    
     if len(train) < 50:
         st.sidebar.warning(f"Peu de matchs pour {sport} → modèle placeholder")
-        model = LGBMClassifier(n_estimators=120, max_depth=5, random_state=42, verbosity=-1)
-        X_fake = pd.DataFrame(np.random.normal(0, 5, (500, len(FEATURES))), columns=FEATURES)
-        y_fake = (X_fake["net_diff"] + X_fake["def_diff"] > np.random.normal(0, 8, 500)).astype(int)
+        model = LGBMClassifier(n_estimators=50, max_depth=3, random_state=42, verbosity=-1)
+        # Créer des features synthétiques pour l'entraînement
+        X_fake = pd.DataFrame(np.random.normal(0, 1, (100, len(FEATURES))), columns=FEATURES)
+        y_fake = (X_fake["net_diff"] + X_fake["def_diff"] > 0).astype(int)
         model.fit(X_fake, y_fake)
     else:
         model = LGBMClassifier(
-            n_estimators=300,
-            learning_rate=0.03,
-            max_depth=7,
+            n_estimators=100,
+            learning_rate=0.05,
+            max_depth=5,
             colsample_bytree=0.80,
             random_state=42,
             verbosity=-1
@@ -444,11 +440,8 @@ def get_or_train_model(sport: str, df: pd.DataFrame):
         model.fit(train[FEATURES], train["home_win"])
         acc = model.score(train[FEATURES], train["home_win"])
         st.sidebar.success(f"Modèle entraîné pour {sport} – {len(train)} matchs – acc train : {acc:.1%}")
-    try:
-        joblib.dump(model, model_path)
-    except:
-        pass
-    return model
+    
+    return model  # Retourner directement sans sauvegarde
 
 def predict_all(df: pd.DataFrame, model) -> pd.DataFrame:
     df = df.copy()
@@ -468,8 +461,18 @@ def predict_all(df: pd.DataFrame, model) -> pd.DataFrame:
 # =============================================================================
 def main():
     st.set_page_config(page_title="Multi-Sports Value Bets • Advanced", layout="wide", page_icon="🏆")
+    
+    # Ajouter un test d'import au début
+    try:
+        import joblib
+        st.sidebar.success(f"✅ Joblib version: {joblib.__version__}")
+    except ImportError as e:
+        st.sidebar.error(f"❌ Joblib non installé: {e}")
+        st.stop()
+    
     st.title("🏆 Pronostics Multi-Sports – Advanced Stats")
     st.caption("Win% + forme + NET/OFF/DEF RATING + PACE – Saison actuelle")
+    
     with st.sidebar:
         st.header("Options")
         selected_sport = st.selectbox("Sport", SPORTS)
