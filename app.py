@@ -805,4 +805,4 @@ def display_value_bets():
                     
                     # Expected Value
                     ev = kelly_stake * match.get('edge', 0)
-                    st.metric("🎯 EV", f"€{ev:,.
+                    st.metric("🎯 EV", f
