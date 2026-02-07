@@ -693,6 +693,8 @@ def display_dashboard():
         
         # Afficher sous forme de tableau avec graphique
         st.line_chart(evolution_df.set_index('Date'))
+    else:
+        st.info("Aucun pari enregistré")
     
     # Top Value Bets
     st.subheader("🏆 Top Value Bets")
@@ -704,11 +706,11 @@ def display_dashboard():
         # Trier par score de value
         value_bets_list.sort(key=lambda x: x.get('value_score', 0), reverse=True)
         
-        for match in value_bets_list[:5]:
+        for i, match in enumerate(value_bets_list[:5], 1):
             with st.container():
                 col1, col2, col3 = st.columns([3, 1, 1])
                 with col1:
-                    st.write(f"**{match['home_name']} vs {match['away_name']}**")
+                    st.write(f"**#{i} - {match['home_name']} vs {match['away_name']}**")
                     st.write(f"*{match['league']} - {match['date']}*")
                 with col2:
                     st.metric("Edge", f"{match.get('edge', 0)*100:.1f}%")
@@ -736,17 +738,21 @@ def display_value_bets():
         min_confidence = st.slider("Confiance minimum (%)", 50.0, 95.0, 60.0, 5.0)
     
     with col3:
-        league_filter = st.selectbox(
-            "Filtrer par ligue",
-            ["Toutes"] + list(set(m['league'] for m in st.session_state.upcoming_matches))
-        )
+        leagues = list(set(m['league'] for m in st.session_state.upcoming_matches))
+        league_filter = st.selectbox("Filtrer par ligue", ["Toutes"] + leagues)
     
     # Filtrer les matchs
     filtered_matches = []
     for match in st.session_state.upcoming_matches:
         if match.get('value_bet'):
             edge = match.get('edge', 0) * 100
-            prob = match.get(f"pred_{match['value_bet']}_win", 0) if match['value_bet'] != 'draw' else match.get('pred_draw', 0)
+            
+            if match['value_bet'] == 'home':
+                prob = match.get('pred_home_win', 0)
+            elif match['value_bet'] == 'draw':
+                prob = match.get('pred_draw', 0)
+            else:
+                prob = match.get('pred_away_win', 0)
             
             if (edge >= min_edge and 
                 prob * 100 >= min_confidence and
@@ -799,7 +805,4 @@ def display_value_bets():
                     
                     # Expected Value
                     ev = kelly_stake * match.get('edge', 0)
-                    st.metric("🎯 EV", f"€{ev:,.0f}")
-                
-                # Bouton pour placer le pari
-                if st.button(f"📝 Placer ce pari", key=f
+                    st.metric("🎯 EV", f"€{ev:,.
