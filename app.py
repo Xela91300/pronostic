@@ -1,23 +1,22 @@
 # app.py - Système de Paris Sportifs IA
-# Version compatible Streamlit Cloud & GitHub
+# Version 100% compatible Streamlit Cloud & GitHub
 
 import pandas as pd
 import numpy as np
 import streamlit as st
-import json
 import time
 from datetime import datetime, date, timedelta
-import plotly.graph_objects as go
-import plotly.express as px
 from typing import Dict, List, Optional, Tuple
 import warnings
 warnings.filterwarnings('ignore')
+import random
+import math
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 
-# Configuration par défaut - fonctionne sans secrets
+# Configuration par défaut
 DEMO_MODE = True
 
 # Ligues de football populaires
@@ -111,8 +110,8 @@ class AdvancedEloSystem:
             'goals_for': 0,
             'goals_against': 0,
             'form': [],  # Derniers résultats (1=win, 0.5=draw, 0=loss)
-            'streak': 0,  # Série actuelle (positive=gagnante, negative=perdante)
-            'last_5_avg': 0.5,  # Moyenne sur 5 derniers matchs
+            'streak': 0,  # Série actuelle
+            'last_5_avg': 0.5,
             'home_record': {'played': 0, 'wins': 0, 'draws': 0, 'losses': 0},
             'away_record': {'played': 0, 'wins': 0, 'draws': 0, 'losses': 0},
         }
@@ -123,7 +122,7 @@ class AdvancedEloSystem:
     
     def margin_of_victory_multiplier(self, goal_diff, elo_diff):
         """Multiplicateur basé sur la marge de victoire"""
-        return np.log(abs(goal_diff) + 1) * (2.2 / (abs(elo_diff) * 0.001 + 2.2))
+        return math.log(abs(goal_diff) + 1) * (2.2 / (abs(elo_diff) * 0.001 + 2.2))
     
     def update_ratings(self, home_id, away_id, home_score, away_score, is_neutral=False):
         """Met à jour les ratings Elo après un match"""
@@ -168,7 +167,7 @@ class AdvancedEloSystem:
         away_elo_change = k * (actual_away - expected_away)
         
         home_data['elo'] += home_elo_change
-        away_data['elo'] -= home_elo_change  # Conservation du total Elo
+        away_data['elo'] -= home_elo_change
         
         # Mise à jour statistiques
         self._update_stats(home_data, home_score, away_score, home_result, is_home=True)
@@ -197,7 +196,7 @@ class AdvancedEloSystem:
         return home_elo_change
     
     def _update_stats(self, team_data, goals_for, goals_against, result, is_home):
-        """Met à jour les statistiques d'une équipe"""
+        """Met à jour les statistiques"""
         team_data['games_played'] += 1
         team_data['goals_for'] += goals_for
         team_data['goals_against'] += goals_against
@@ -244,7 +243,7 @@ class AdvancedEloSystem:
         return np.mean(team_data['form'][-last_n:])
     
     def get_team_strength(self, team_id, include_form=True):
-        """Calcule la force d'une équipe (Elo + form)"""
+        """Calcule la force d'une équipe"""
         team_data = self.ratings.get(team_id)
         if not team_data:
             return 1500
@@ -252,7 +251,6 @@ class AdvancedEloSystem:
         base_elo = team_data['elo']
         
         if include_form:
-            # Ajustement basé sur la forme récente
             form_factor = 1.0 + (team_data['last_5_avg'] - 0.5) * 0.2
             return base_elo * form_factor
         
@@ -278,9 +276,9 @@ class AdvancedEloSystem:
             home_strength, away_strength, home_adv
         )
         
-        # Modèle de match nul basé sur la différence Elo
+        # Modèle de match nul
         elo_diff = abs(home_strength - away_strength)
-        draw_prob = 0.25 * np.exp(-elo_diff / 200)  # Plus de nuls quand équipes proches
+        draw_prob = 0.25 * np.exp(-elo_diff / 200)
         
         # Normalisation
         total = home_win_prob + draw_prob
@@ -313,9 +311,9 @@ class DemoDataGenerator:
         for round_num in range(num_rounds):
             match_date = today - timedelta(days=(num_rounds - round_num - 1) * 3)
             
-            # Mélanger les équipes pour créer des paires
+            # Mélanger les équipes
             teams = list(league_teams)
-            np.random.shuffle(teams)
+            random.shuffle(teams)
             
             for i in range(0, len(teams) - 1, 2):
                 home_id = teams[i]
@@ -324,11 +322,11 @@ class DemoDataGenerator:
                 # Prédiction
                 probs = self.elo_system.predict_match(home_id, away_id)
                 
-                # Générer score basé sur les probabilités
+                # Générer score
                 home_score, away_score = self.generate_score(probs)
                 
                 match = {
-                    'date': match_date,
+                    'date': match_date.strftime('%Y-%m-%d'),
                     'home_id': home_id,
                     'away_id': away_id,
                     'home_name': self.elo_system.ratings[home_id]['name'],
@@ -352,13 +350,15 @@ class DemoDataGenerator:
         return matches
     
     def generate_score(self, probs):
-        """Génère un score réaliste basé sur les probabilités"""
+        """Génère un score réaliste"""
         # Déterminer le résultat
-        result = np.random.choice(['home', 'draw', 'away'], p=[probs['home_win'], probs['draw'], probs['away_win']])
+        outcomes = ['home', 'draw', 'away']
+        probabilities = [probs['home_win'], probs['draw'], probs['away_win']]
+        result = random.choices(outcomes, weights=probabilities, k=1)[0]
         
-        # Générer les buts selon le résultat
+        # Générer les buts
         if result == 'home':
-            home_goals = np.random.poisson(1.8) + 1  # Plus de buts pour le gagnant
+            home_goals = np.random.poisson(1.8) + 1
             away_goals = np.random.poisson(1.0)
         elif result == 'away':
             home_goals = np.random.poisson(1.0)
@@ -379,9 +379,9 @@ class DemoDataGenerator:
             match_date = today + timedelta(days=day)
             
             # 2-3 matchs par jour
-            num_matches = np.random.randint(2, 4)
+            num_matches = random.randint(2, 4)
             teams = list(league_teams)
-            np.random.shuffle(teams)
+            random.shuffle(teams)
             
             for i in range(0, min(num_matches * 2, len(teams) - 1), 2):
                 home_id = teams[i]
@@ -389,14 +389,14 @@ class DemoDataGenerator:
                 
                 probs = self.elo_system.predict_match(home_id, away_id)
                 
-                # Cotes simulées (avec marges bookmakers)
-                margin = 1.05  # Marge de 5%
+                # Cotes simulées
+                margin = 1.05
                 home_odds = round(1 / (probs['home_win'] * margin), 2)
                 draw_odds = round(1 / (probs['draw'] * margin), 2)
                 away_odds = round(1 / (probs['away_win'] * margin), 2)
                 
                 match = {
-                    'date': match_date,
+                    'date': match_date.strftime('%Y-%m-%d'),
                     'home_id': home_id,
                     'away_id': away_id,
                     'home_name': self.elo_system.ratings[home_id]['name'],
@@ -442,7 +442,7 @@ class DemoDataGenerator:
         best_edge = 0
         
         for bet_type in ['home', 'draw', 'away']:
-            if odds[bet_type] > 1:  # Éviter division par zéro
+            if odds[bet_type] > 1:
                 implied_prob = 1 / odds[bet_type]
                 edge = probs[bet_type] - implied_prob
                 
@@ -456,8 +456,7 @@ class DemoDataGenerator:
                         'implied_prob': implied_prob
                     }
         
-        if best_edge > 0.02:  # Edge minimum de 2%
-            # Score de value (edge * confidence)
+        if best_edge > 0.02:
             confidence = best_value['prob']
             value_score = best_edge * confidence * 100
             
@@ -497,7 +496,7 @@ class BankrollManager:
         }
     
     def calculate_kelly_stake(self, bankroll, probability, odds, fraction=0.25):
-        """Calcule la mise selon le critère de Kelly fractionnaire"""
+        """Calcule la mise selon Kelly"""
         if odds <= 1:
             return 0
         
@@ -505,12 +504,9 @@ class BankrollManager:
         p = probability
         q = 1 - p
         
-        # Formule Kelly: f* = (bp - q) / b
         kelly_fraction = (b * p - q) / b
-        
-        # Limiter et fractionner
-        kelly_fraction = max(0, min(kelly_fraction, 0.5))  # Limite à 50%
-        kelly_fraction *= fraction  # Fraction de Kelly
+        kelly_fraction = max(0, min(kelly_fraction, 0.5))
+        kelly_fraction *= fraction
         
         return kelly_fraction * bankroll
     
@@ -539,7 +535,7 @@ class BankrollManager:
         return bet
     
     def settle_bet(self, bet_id, result):
-        """Règle un pari (win/loss)"""
+        """Règle un pari"""
         for bet in self.bet_history:
             if bet['id'] == bet_id and bet['status'] == 'pending':
                 bet['result'] = result
@@ -580,7 +576,7 @@ class BankrollManager:
         return {"error": "Pari non trouvé"}
 
 # =============================================================================
-# INTERFACE STREAMLIT
+# FONCTIONS D'AFFICHAGE
 # =============================================================================
 
 def setup_page():
@@ -598,9 +594,7 @@ def setup_page():
     .main-title {
         font-size: 2.5rem;
         font-weight: bold;
-        background: linear-gradient(90deg, #1E88E5, #4A00E0);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        color: #1E88E5;
         text-align: center;
         margin-bottom: 1rem;
     }
@@ -625,7 +619,7 @@ def setup_page():
         border-left: 4px solid #1E88E5;
     }
     .stButton>button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: #1E88E5;
         color: white;
         font-weight: bold;
         border: none;
@@ -638,143 +632,15 @@ def setup_page():
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         text-align: center;
     }
+    .tab-content {
+        padding: 1rem 0;
+    }
     </style>
     """, unsafe_allow_html=True)
     
     # Header
     st.markdown('<div class="main-title">⚽ Système de Paris Sportifs IA</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-title">Elo Rating • Value Bets • Gestion de Bankroll • Compatible GitHub</div>', unsafe_allow_html=True)
-
-def main():
-    """Fonction principale"""
-    setup_page()
-    
-    # Initialisation session state
-    if 'elo_system' not in st.session_state:
-        st.session_state.elo_system = AdvancedEloSystem()
-    
-    if 'data_gen' not in st.session_state:
-        st.session_state.data_gen = DemoDataGenerator(st.session_state.elo_system)
-    
-    if 'bankroll' not in st.session_state:
-        st.session_state.bankroll = BankrollManager()
-    
-    if 'generated_matches' not in st.session_state:
-        st.session_state.generated_matches = []
-        st.session_state.upcoming_matches = []
-    
-    # Sidebar
-    with st.sidebar:
-        st.header("⚙️ Configuration")
-        
-        # Bankroll
-        bankroll_amount = st.number_input(
-            "💰 Bankroll Initial (€)",
-            min_value=100,
-            max_value=100000,
-            value=10000,
-            step=500
-        )
-        
-        if bankroll_amount != st.session_state.bankroll.initial_bankroll:
-            st.session_state.bankroll = BankrollManager(bankroll_amount)
-        
-        # Paramètres risque
-        st.subheader("📊 Paramètres Risque")
-        
-        kelly_fraction = st.slider(
-            "Fraction de Kelly",
-            min_value=0.1,
-            max_value=1.0,
-            value=0.25,
-            step=0.05,
-            help="Pourcentage du Kelly full à utiliser"
-        )
-        
-        min_edge = st.slider(
-            "Edge Minimum (%)",
-            min_value=1.0,
-            max_value=10.0,
-            value=2.0,
-            step=0.5
-        )
-        
-        # Sélection ligue
-        st.subheader("🏆 Sélection Ligue")
-        
-        selected_league = st.selectbox(
-            "Choisir une ligue",
-            list(LEAGUES.keys())
-        )
-        
-        league_info = LEAGUES[selected_league]
-        
-        # Boutons d'action
-        st.subheader("🔄 Actions")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🎯 Générer Matchs", type="primary"):
-                with st.spinner("Génération des matchs..."):
-                    league_teams = [id for id, data in TEAMS_DATA.items() 
-                                   if data['league'] == league_info['name']]
-                    
-                    # Générer matchs passés
-                    historical = st.session_state.data_gen.generate_season_matches(
-                        league_teams, num_rounds=5
-                    )
-                    st.session_state.generated_matches = historical
-                    
-                    # Générer matchs à venir
-                    upcoming = st.session_state.data_gen.generate_upcoming_matches(
-                        league_teams, days_ahead=7
-                    )
-                    st.session_state.upcoming_matches = upcoming
-                    
-                    st.success(f"{len(historical)} matchs historiques générés!")
-                    st.success(f"{len(upcoming)} matchs à venir générés!")
-        
-        with col2:
-            if st.button("🧹 Réinitialiser"):
-                for key in list(st.session_state.keys()):
-                    if key not in ['elo_system', 'data_gen']:
-                        del st.session_state[key]
-                st.session_state.elo_system = AdvancedEloSystem()
-                st.session_state.data_gen = DemoDataGenerator(st.session_state.elo_system)
-                st.rerun()
-        
-        # Info
-        st.divider()
-        st.info("""
-        **📌 Mode Démo Activé**
-        
-        Données simulées pour démonstration.
-        
-        Pour utiliser des données réelles:
-        1. Créez un compte sur api-sports.io
-        2. Ajoutez votre clé API dans les secrets
-        3. Désactivez le mode démo
-        """)
-    
-    # Onglets principaux
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📊 Dashboard", 
-        "🎯 Value Bets", 
-        "🤖 Modèles", 
-        "💰 Bankroll"
-    ])
-    
-    with tab1:
-        display_dashboard()
-    
-    with tab2:
-        display_value_bets()
-    
-    with tab3:
-        display_models()
-    
-    with tab4:
-        display_bankroll()
 
 def display_dashboard():
     """Affiche le dashboard principal"""
@@ -784,10 +650,11 @@ def display_dashboard():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
+        bankroll_change = st.session_state.bankroll.current_bankroll - st.session_state.bankroll.initial_bankroll
         st.metric(
             "💰 Bankroll",
             f"€{st.session_state.bankroll.current_bankroll:,.0f}",
-            f"€{st.session_state.bankroll.current_bankroll - st.session_state.bankroll.initial_bankroll:+,.0f}"
+            f"€{bankroll_change:+,.0f}"
         )
     
     with col2:
@@ -801,39 +668,138 @@ def display_dashboard():
         st.metric("🎯 ROI", f"{roi:.1f}%", "Cumulé")
     
     with col4:
-        value_bets = len([m for m in st.session_state.upcoming_matches 
+        value_bets = len([m for m in st.session_state.get('upcoming_matches', []) 
                          if m.get('value_bet')])
         st.metric("⚡ Value Bets", value_bets, "Aujourd'hui")
     
-    # Graphiques
-    col1, col2 = st.columns(2)
+    # Évolution Bankroll
+    st.subheader("📈 Évolution du Bankroll")
+    
+    if st.session_state.bankroll.bet_history:
+        dates = [bet['date'].strftime('%Y-%m-%d') for bet in st.session_state.bankroll.bet_history]
+        amounts = []
+        current = st.session_state.bankroll.initial_bankroll
+        
+        for bet in st.session_state.bankroll.bet_history:
+            if bet.get('result') == 'win':
+                current += bet['potential_win']
+            amounts.append(current)
+        
+        # Créer un tableau pour l'évolution
+        evolution_df = pd.DataFrame({
+            'Date': dates,
+            'Bankroll': amounts
+        })
+        
+        # Afficher sous forme de tableau avec graphique
+        st.line_chart(evolution_df.set_index('Date'))
+    
+    # Top Value Bets
+    st.subheader("🏆 Top Value Bets")
+    
+    upcoming_matches = st.session_state.get('upcoming_matches', [])
+    value_bets_list = [m for m in upcoming_matches if m.get('value_bet')]
+    
+    if value_bets_list:
+        # Trier par score de value
+        value_bets_list.sort(key=lambda x: x.get('value_score', 0), reverse=True)
+        
+        for match in value_bets_list[:5]:
+            with st.container():
+                col1, col2, col3 = st.columns([3, 1, 1])
+                with col1:
+                    st.write(f"**{match['home_name']} vs {match['away_name']}**")
+                    st.write(f"*{match['league']} - {match['date']}*")
+                with col2:
+                    st.metric("Edge", f"{match.get('edge', 0)*100:.1f}%")
+                with col3:
+                    st.metric("Score", f"{match.get('value_score', 0):.1f}")
+                st.divider()
+    else:
+        st.info("Aucun value bet détecté pour le moment")
+
+def display_value_bets():
+    """Affiche les value bets"""
+    st.header("🎯 Détection de Value Bets")
+    
+    if 'upcoming_matches' not in st.session_state:
+        st.warning("Générez d'abord des matchs depuis le Dashboard")
+        return
+    
+    # Filtres
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.subheader("📈 Évolution Bankroll")
+        min_edge = st.slider("Edge minimum (%)", 1.0, 10.0, 2.0, 0.5)
+    
+    with col2:
+        min_confidence = st.slider("Confiance minimum (%)", 50.0, 95.0, 60.0, 5.0)
+    
+    with col3:
+        league_filter = st.selectbox(
+            "Filtrer par ligue",
+            ["Toutes"] + list(set(m['league'] for m in st.session_state.upcoming_matches))
+        )
+    
+    # Filtrer les matchs
+    filtered_matches = []
+    for match in st.session_state.upcoming_matches:
+        if match.get('value_bet'):
+            edge = match.get('edge', 0) * 100
+            prob = match.get(f"pred_{match['value_bet']}_win", 0) if match['value_bet'] != 'draw' else match.get('pred_draw', 0)
+            
+            if (edge >= min_edge and 
+                prob * 100 >= min_confidence and
+                (league_filter == "Toutes" or match['league'] == league_filter)):
+                filtered_matches.append(match)
+    
+    # Afficher les value bets
+    if filtered_matches:
+        st.success(f"🎯 {len(filtered_matches)} value bets détectés!")
         
-        if st.session_state.bankroll.bet_history:
-            dates = [bet['date'] for bet in st.session_state.bankroll.bet_history]
-            amounts = []
-            current = st.session_state.bankroll.initial_bankroll
-            
-            for bet in st.session_state.bankroll.bet_history:
-                if bet.get('result') == 'win':
-                    current += bet['potential_win']
-                amounts.append(current)
-            
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=dates, y=amounts,
-                mode='lines+markers',
-                name='Bankroll',
-                line=dict(color='#1E88E5', width=3)
-            ))
-            
-            fig.update_layout(
-                title="Évolution du Bankroll",
-                xaxis_title="Date",
-                yaxis_title="Bankroll (€)",
-                template="plotly_white"
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+        for match in filtered_matches:
+            with st.expander(f"🏆 **{match['home_name']} vs {match['away_name']}** - Edge: {match.get('edge', 0)*100:.1f}%"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write(f"**Ligue:** {match['league']}")
+                    st.write(f"**Date:** {match['date']}")
+                    st.write(f"**Type de pari:** {match['value_bet'].upper()}")
+                    
+                    # Probabilités
+                    st.write("**Probabilités:**")
+                    st.write(f"- Domicile: {match['pred_home_win']*100:.1f}% (cote {match['home_odds']})")
+                    st.write(f"- Nul: {match['pred_draw']*100:.1f}% (cote {match['draw_odds']})")
+                    st.write(f"- Extérieur: {match['pred_away_win']*100:.1f}% (cote {match['away_odds']})")
+                
+                with col2:
+                    # Calculs de value
+                    edge_pct = match.get('edge', 0) * 100
+                    st.metric("📈 Edge", f"{edge_pct:.1f}%")
+                    
+                    # Mise recommandée
+                    if match['value_bet'] == 'home':
+                        prob = match['pred_home_win']
+                        odds = match['home_odds']
+                    elif match['value_bet'] == 'draw':
+                        prob = match['pred_draw']
+                        odds = match['draw_odds']
+                    else:
+                        prob = match['pred_away_win']
+                        odds = match['away_odds']
+                    
+                    kelly_stake = st.session_state.bankroll.calculate_kelly_stake(
+                        st.session_state.bankroll.current_bankroll,
+                        prob,
+                        odds,
+                        fraction=0.25
+                    )
+                    
+                    st.metric("💰 Mise Kelly", f"€{kelly_stake:,.0f}")
+                    
+                    # Expected Value
+                    ev = kelly_stake * match.get('edge', 0)
+                    st.metric("🎯 EV", f"€{ev:,.0f}")
+                
+                # Bouton pour placer le pari
+                if st.button(f"📝 Placer ce pari", key=f
