@@ -1,5 +1,5 @@
 # app.py - Système de Pronostics avec scraping SofaScore en direct
-# Version complète avec analyse en temps réel
+# Version corrigée (bug timetogether -> timetuple)
 
 import streamlit as st
 import pandas as pd
@@ -378,7 +378,7 @@ class SofaScoreScraper:
                 'league_name': league,
                 'league_country': self._guess_country(league),
                 'status': 'NS',
-                'timestamp': int(time.mktime(target_date.timetogether())) + hour * 3600,
+                'timestamp': int(time.mktime(target_date.timetuple())) + hour * 3600,  # CORRECTION ICI
                 'source': 'fallback_real'
             })
         
@@ -435,7 +435,7 @@ class SofaScoreScraper:
                 'league_name': league,
                 'league_country': self._guess_country(league),
                 'status': 'NS',
-                'timestamp': int(time.mktime(target_date.timetogether())) + hour * 3600,
+                'timestamp': int(time.mktime(target_date.timetuple())) + hour * 3600,  # CORRECTION ICI
                 'source': 'generated'
             })
         
@@ -524,7 +524,7 @@ class SofaScoreScraper:
             return False
 
 # =============================================================================
-# SYSTÈME DE PRÉDICTION (Conservé de votre script)
+# SYSTÈME DE PRÉDICTION
 # =============================================================================
 
 class EnhancedPredictionSystem:
