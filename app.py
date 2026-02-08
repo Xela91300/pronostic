@@ -1,5 +1,5 @@
 # app.py - Système d'Analyse et Pronostics de Matchs
-# Version avec Données Simulées pour Fonctionner Sans API
+# Version corrigée avec IDs uniques pour Streamlit
 
 import streamlit as st
 import pandas as pd
@@ -749,7 +749,7 @@ class AdvancedPredictionSystem:
         return self.predictions[:top_n]
 
 # =============================================================================
-# INTERFACE STREAMLIT
+# INTERFACE STREAMLIT - CORRIGÉE AVEC KEYS UNIQUES
 # =============================================================================
 
 def setup_interface():
@@ -864,7 +864,8 @@ def main():
             min_value=1,
             max_value=7,
             value=2,
-            help="Nombre de jours à venir à analyser"
+            help="Nombre de jours à venir à analyser",
+            key="sidebar_days_ahead"
         )
         
         min_confidence = st.slider(
@@ -872,7 +873,8 @@ def main():
             min_value=50,
             max_value=95,
             value=60,
-            step=5
+            step=5,
+            key="sidebar_min_confidence"
         )
         
         max_matches = st.slider(
@@ -880,11 +882,12 @@ def main():
             min_value=10,
             max_value=50,
             value=25,
-            step=5
+            step=5,
+            key="sidebar_max_matches"
         )
         
         # Bouton d'analyse
-        if st.button("🚀 LANCER L'ANALYSE", type="primary", use_container_width=True):
+        if st.button("🚀 LANCER L'ANALYSE", type="primary", use_container_width=True, key="sidebar_analyze_button"):
             with st.spinner("Génération et analyse des matchs..."):
                 results = st.session_state.prediction_system.scan_all_matches(
                     days_ahead=days_ahead,
@@ -902,16 +905,16 @@ def main():
         
         if hasattr(st.session_state.prediction_system, 'prediction_history') and st.session_state.prediction_system.prediction_history:
             last_scan = st.session_state.prediction_system.prediction_history[-1]
-            st.metric("📅 Dernière analyse", last_scan['timestamp'].strftime('%H:%M'))
-            st.metric("🔍 Matchs analysés", last_scan['total_matches_scanned'])
-            st.metric("🎯 Pronostics générés", last_scan['predictions_made'])
+            st.metric("📅 Dernière analyse", last_scan['timestamp'].strftime('%H:%M'), key="sidebar_last_scan")
+            st.metric("🔍 Matchs analysés", last_scan['total_matches_scanned'], key="sidebar_matches_scanned")
+            st.metric("🎯 Pronostics générés", last_scan['predictions_made'], key="sidebar_predictions_made")
             if last_scan['predictions_made'] > 0:
-                st.metric("📈 Confiance moyenne", f"{last_scan['avg_confidence']:.1f}%")
+                st.metric("📈 Confiance moyenne", f"{last_scan['avg_confidence']:.1f}%", key="sidebar_avg_confidence")
         
         st.divider()
         
         # Info
-        with st.expander("ℹ️ À propos"):
+        with st.expander("ℹ️ À propos", key="sidebar_about"):
             st.markdown("""
             **Système de prédiction avec données simulées:**
             
@@ -988,16 +991,18 @@ def display_best_predictions():
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        min_conf_filter = st.slider("Confiance minimum", 50, 95, 65, 5, key="conf_filter")
+        min_conf_filter = st.slider("Confiance minimum", 50, 95, 65, 5, key="tab1_conf_filter")
     
     with col2:
         league_filter = st.selectbox("Filtrer par ligue", 
                                    ["Toutes", "Ligue 1", "Premier League", "La Liga", 
-                                    "Bundesliga", "Serie A"])
+                                    "Bundesliga", "Serie A"],
+                                   key="tab1_league_filter")
     
     with col3:
         prediction_type = st.selectbox("Type de pronostic", 
-                                      ["Tous", "Victoire domicile", "Victoire extérieur", "Match nul"])
+                                      ["Tous", "Victoire domicile", "Victoire extérieur", "Match nul"],
+                                      key="tab1_prediction_type")
     
     # Filtrer les prédictions
     filtered_preds = [
@@ -1016,10 +1021,10 @@ def display_best_predictions():
         elif prediction_type == "Match nul":
             filtered_preds = [p for p in filtered_preds if "Match nul" in p['predictions'][0]['prediction']]
     
-    st.success(f"✅ **{len(filtered_preds)} pronostics filtrés**")
+    st.success(f"✅ **{len(filtered_preds)} pronostics filtrés**", key="tab1_success_message")
     
     if not filtered_preds:
-        st.info("Aucun pronostic ne correspond aux critères de filtrage")
+        st.info("Aucun pronostic ne correspond aux critères de filtrage", key="tab1_no_results")
         return
     
     # Afficher les pronostics
@@ -1076,7 +1081,7 @@ def display_best_predictions():
                     st.success(f"**💰 MEILLEUR PARI:** {best_bet['prediction']} @ {best_bet['odd_estimee']}")
                 
                 # Bouton pour plus de détails
-                if st.button(f"📊 ANALYSER", key=f"details_{idx}", use_container_width=True):
+                if st.button(f"📊 ANALYSER", key=f"tab1_details_{idx}_{pred['match'].replace(' ', '_')}", use_container_width=True):
                     st.session_state.selected_prediction = pred
                     st.rerun()
             
@@ -1093,7 +1098,7 @@ def display_prediction_details(prediction: Dict):
     st.subheader(f"📊 ANALYSE DÉTAILLÉE: {prediction['match']}")
     
     # Bouton pour fermer
-    if st.button("❌ Fermer l'analyse détaillée"):
+    if st.button("❌ Fermer l'analyse détaillée", key="close_details_button"):
         del st.session_state.selected_prediction
         st.rerun()
     
@@ -1101,13 +1106,13 @@ def display_prediction_details(prediction: Dict):
     col_info1, col_info2, col_info3 = st.columns(3)
     
     with col_info1:
-        st.metric("🏆 Ligue", prediction['league'])
+        st.metric("🏆 Ligue", prediction['league'], key="detail_league")
     
     with col_info2:
-        st.metric("📅 Date", prediction.get('date', '')[:10])
+        st.metric("📅 Date", prediction.get('date', '')[:10], key="detail_date")
     
     with col_info3:
-        st.metric("⏰ Heure", prediction.get('time', ''))
+        st.metric("⏰ Heure", prediction.get('time', ''), key="detail_time")
     
     st.divider()
     
@@ -1118,25 +1123,25 @@ def display_prediction_details(prediction: Dict):
     probs = prediction['probabilities']
     
     with col_prob1:
-        st.metric("Victoire domicile", f"{probs['home_win']}%")
+        st.metric("Victoire domicile", f"{probs['home_win']}%", key="detail_home_win")
         st.progress(probs['home_win']/100)
     
     with col_prob2:
-        st.metric("Match nul", f"{probs['draw']}%")
+        st.metric("Match nul", f"{probs['draw']}%", key="detail_draw")
         st.progress(probs['draw']/100)
     
     with col_prob3:
-        st.metric("Victoire extérieur", f"{probs['away_win']}%")
+        st.metric("Victoire extérieur", f"{probs['away_win']}%", key="detail_away_win")
         st.progress(probs['away_win']/100)
     
     # Forme des équipes
     col_form1, col_form2 = st.columns(2)
     
     with col_form1:
-        st.metric("📈 Forme domicile", f"{probs['home_form']}%")
+        st.metric("📈 Forme domicile", f"{probs['home_form']}%", key="detail_home_form")
     
     with col_form2:
-        st.metric("📉 Forme extérieur", f"{probs['away_form']}%")
+        st.metric("📉 Forme extérieur", f"{probs['away_form']}%", key="detail_away_form")
     
     st.divider()
     
@@ -1148,16 +1153,16 @@ def display_prediction_details(prediction: Dict):
     col_h2h1, col_h2h2, col_h2h3 = st.columns(3)
     
     with col_h2h1:
-        st.metric("Victoires domicile", h2h['stats']['home_wins'])
+        st.metric("Victoires domicile", h2h['stats']['home_wins'], key="detail_home_wins")
     
     with col_h2h2:
-        st.metric("Matchs nuls", h2h['stats']['draws'])
+        st.metric("Matchs nuls", h2h['stats']['draws'], key="detail_draws")
     
     with col_h2h3:
-        st.metric("Victoires extérieur", h2h['stats']['away_wins'])
+        st.metric("Victoires extérieur", h2h['stats']['away_wins'], key="detail_away_wins")
     
     # Derniers matchs
-    with st.expander("Voir les derniers matchs"):
+    with st.expander("Voir les derniers matchs", key="h2h_expander"):
         for match in h2h['matches'][:3]:
             st.write(f"{match['date']}: {match['result']}")
     
@@ -1166,7 +1171,7 @@ def display_prediction_details(prediction: Dict):
     # Section 3: Toutes les prédictions
     st.subheader("🔮 TOUTES LES PRÉDICTIONS")
     
-    for pred in prediction['predictions']:
+    for i, pred in enumerate(prediction['predictions']):
         col_pred1, col_pred2, col_pred3 = st.columns([2, 2, 1])
         
         with col_pred1:
@@ -1184,7 +1189,7 @@ def display_prediction_details(prediction: Dict):
     st.subheader("💰 RECOMMANDATIONS DE PARIS")
     
     if prediction['betting_recommendations']:
-        for rec in prediction['betting_recommendations']:
+        for i, rec in enumerate(prediction['betting_recommendations']):
             with st.container():
                 col_rec1, col_rec2, col_rec3, col_rec4 = st.columns([2, 1, 2, 1])
                 
@@ -1201,7 +1206,7 @@ def display_prediction_details(prediction: Dict):
                 with col_rec4:
                     st.write(f"Risque: {rec['risque']}")
     else:
-        st.info("⚠️ Aucune recommandation de pari pour ce match (trop risqué)")
+        st.info("⚠️ Aucune recommandation de pari pour ce match (trop risqué)", key="no_bets_warning")
     
     st.divider()
     
@@ -1215,7 +1220,7 @@ def display_prediction_details(prediction: Dict):
         st.markdown(f"# {score_pred['score']}")
     
     with col_score2:
-        st.metric("Probabilité de ce score", f"{score_pred['probability']}%")
+        st.metric("Probabilité de ce score", f"{score_pred['probability']}%", key="score_probability")
     
     st.divider()
     
@@ -1234,7 +1239,7 @@ def display_detailed_analysis():
         fixtures = st.session_state.prediction_system.data_generator.generate_upcoming_fixtures(days_ahead=3)
         
         if not fixtures:
-            st.info("Générez d'abord des matchs en lançant une analyse")
+            st.info("Générez d'abord des matchs en lançant une analyse", key="tab2_no_matches")
             return
         
         # Liste des matchs disponibles
@@ -1246,7 +1251,8 @@ def display_detailed_analysis():
         selected_match_display = st.selectbox(
             "Sélectionnez un match à analyser",
             options=[m[0] for m in match_list],
-            index=0 if match_list else 0
+            index=0 if match_list else 0,
+            key="tab2_match_select"
         )
         
         if selected_match_display:
@@ -1257,14 +1263,14 @@ def display_detailed_analysis():
                     selected_fixture = fixture
                     break
             
-            if selected_fixture and st.button("🔍 ANALYSER CE MATCH", type="primary"):
+            if selected_fixture and st.button("🔍 ANALYSER CE MATCH", type="primary", key="tab2_analyze_button"):
                 with st.spinner("Analyse en cours..."):
                     analysis = st.session_state.prediction_system.analyze_match(selected_fixture)
                     
                     if analysis:
                         display_complete_analysis(analysis)
                     else:
-                        st.error("Impossible d'analyser ce match")
+                        st.error("Impossible d'analyser ce match", key="tab2_analysis_error")
     
     except Exception as e:
         st.error(f"Erreur: {str(e)}")
@@ -1280,22 +1286,22 @@ def display_complete_analysis(analysis: Dict):
     with col_dash1:
         conf_score = analysis['confidence']['score']
         if conf_score >= 80:
-            st.success(f"CONFIANCE: {conf_score:.1f}%")
+            st.success(f"CONFIANCE: {conf_score:.1f}%", key="analysis_conf_metric")
         elif conf_score >= 60:
-            st.warning(f"CONFIANCE: {conf_score:.1f}%")
+            st.warning(f"CONFIANCE: {conf_score:.1f}%", key="analysis_conf_metric")
         else:
-            st.error(f"CONFIANCE: {conf_score:.1f}%")
+            st.error(f"CONFIANCE: {conf_score:.1f}%", key="analysis_conf_metric")
     
     with col_dash2:
-        st.info(f"TYPE: {analysis['match_type']}")
+        st.info(f"TYPE: {analysis['match_type']}", key="analysis_type_metric")
     
     with col_dash3:
         main_pred = analysis['predictions'][0]
-        st.info(f"PRONOSTIC: {main_pred['prediction']}")
+        st.info(f"PRONOSTIC: {main_pred['prediction']}", key="analysis_pred_metric")
     
     with col_dash4:
         score_pred = analysis['probable_score']
-        st.info(f"SCORE: {score_pred['score']}")
+        st.info(f"SCORE: {score_pred['score']}", key="analysis_score_metric")
     
     st.divider()
     
@@ -1338,7 +1344,7 @@ def display_complete_analysis(analysis: Dict):
         st.subheader("💰 ANALYSE DES PARIS")
         
         if analysis['betting_recommendations']:
-            for rec in analysis['betting_recommendations']:
+            for i, rec in enumerate(analysis['betting_recommendations']):
                 with st.container():
                     st.write(f"**{rec['type']} - {rec['prediction']}**")
                     st.write(f"- Cote estimée: {rec['odd_estimee']}")
@@ -1348,13 +1354,13 @@ def display_complete_analysis(analysis: Dict):
                         st.write(f"- Score valeur: {rec['valeur_score']}%")
                     st.divider()
         else:
-            st.warning("⚠️ Aucun pari recommandé - Match trop risqué")
+            st.warning("⚠️ Aucun pari recommandé - Match trop risqué", key="analysis_no_bets")
     
     # Prédictions détaillées
     st.subheader("🔮 PRÉDICTIONS DÉTAILLÉES")
     
-    for pred in analysis['predictions']:
-        with st.expander(f"{pred['type']}: {pred['prediction']}"):
+    for i, pred in enumerate(analysis['predictions']):
+        with st.expander(f"{pred['type']}: {pred['prediction']}", key=f"analysis_expander_{i}"):
             col_pred1, col_pred2 = st.columns(2)
             
             with col_pred1:
@@ -1386,12 +1392,13 @@ def display_all_matches():
     col_view1, col_view2 = st.columns(2)
     
     with col_view1:
-        show_days = st.selectbox("Afficher les matchs sur", [1, 2, 3, 7], index=2)
+        show_days = st.selectbox("Afficher les matchs sur", [1, 2, 3, 7], index=2, key="tab3_show_days")
     
     with col_view2:
         league_filter = st.selectbox("Filtrer par ligue", 
                                    ["Toutes", "Ligue 1", "Premier League", "La Liga", 
-                                    "Bundesliga", "Serie A"])
+                                    "Bundesliga", "Serie A"],
+                                   key="tab3_league_filter")
     
     # Générer des matchs
     try:
@@ -1400,17 +1407,17 @@ def display_all_matches():
         )
         
         if not fixtures:
-            st.info("Aucun match trouvé")
+            st.info("Aucun match trouvé", key="tab3_no_matches")
             return
         
         # Appliquer le filtre de ligue
         if league_filter != "Toutes":
             fixtures = [f for f in fixtures if f.get('league_name') == league_filter]
         
-        st.info(f"📊 **{len(fixtures)} matchs trouvés**")
+        st.info(f"📊 **{len(fixtures)} matchs trouvés**", key="tab3_matches_found")
         
         # Afficher les matchs
-        for fixture in fixtures:
+        for idx, fixture in enumerate(fixtures):
             with st.container():
                 col_match1, col_match2, col_match3 = st.columns([2, 1, 2])
                 
@@ -1427,7 +1434,7 @@ def display_all_matches():
                 st.write(f"📍 **{fixture.get('league_name', '')}** • {fixture.get('date', '')[:10]}")
                 
                 # Bouton pour analyser ce match
-                if st.button(f"🔍 Analyser ce match", key=f"analyze_{fixture.get('fixture_id')}"):
+                if st.button(f"🔍 Analyser ce match", key=f"tab3_analyze_{fixture.get('fixture_id')}_{idx}"):
                     analysis = st.session_state.prediction_system.analyze_match(fixture)
                     if analysis:
                         st.session_state.quick_analysis = analysis
@@ -1450,7 +1457,7 @@ def display_all_matches():
                 st.write(f"**Confiance:** {analysis['confidence']['overall']}")
                 st.write(f"**Score probable:** {analysis['probable_score']['score']}")
             
-            if st.button("❌ Fermer l'analyse rapide"):
+            if st.button("❌ Fermer l'analyse rapide", key="tab3_close_quick_analysis"):
                 del st.session_state.quick_analysis
                 st.rerun()
     
@@ -1463,7 +1470,7 @@ def display_history():
     st.header("📊 HISTORIQUE DES ANALYSES")
     
     if not hasattr(st.session_state.prediction_system, 'prediction_history') or not st.session_state.prediction_system.prediction_history:
-        st.info("Aucune analyse dans l'historique. Lancez votre première analyse!")
+        st.info("Aucune analyse dans l'historique. Lancez votre première analyse!", key="tab4_no_history")
         return
     
     history = st.session_state.prediction_system.prediction_history
@@ -1479,16 +1486,16 @@ def display_history():
     success_rate = (total_predictions / total_scanned * 100) if total_scanned > 0 else 0
     
     with col_stat1:
-        st.metric("Analyses effectuées", len(history))
+        st.metric("Analyses effectuées", len(history), key="tab4_total_analyses")
     
     with col_stat2:
-        st.metric("Matchs analysés", total_scanned)
+        st.metric("Matchs analysés", total_scanned, key="tab4_total_matches")
     
     with col_stat3:
-        st.metric("Pronostics générés", total_predictions)
+        st.metric("Pronostics générés", total_predictions, key="tab4_total_predictions")
     
     with col_stat4:
-        st.metric("Taux de succès", f"{success_rate:.1f}%")
+        st.metric("Taux de succès", f"{success_rate:.1f}%", key="tab4_success_rate")
     
     # Tableau d'historique
     st.subheader("📋 DÉTAIL DES ANALYSES")
@@ -1527,9 +1534,9 @@ def display_history():
     
     # Bouton de nettoyage
     st.divider()
-    if st.button("🧹 Effacer l'historique", type="secondary"):
+    if st.button("🧹 Effacer l'historique", type="secondary", key="tab4_clear_history"):
         st.session_state.prediction_system.prediction_history = []
-        st.success("Historique effacé avec succès!")
+        st.success("Historique effacé avec succès!", key="tab4_clear_success")
         st.rerun()
 
 # =============================================================================
