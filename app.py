@@ -1,5 +1,5 @@
 # app.py - Système de Pronostics Personnalisé
-# Version avec entrée manuelle des matchs
+# Version avec entrée manuelle des matchs - CORRIGÉ
 
 import streamlit as st
 import pandas as pd
@@ -23,7 +23,6 @@ class AdvancedPredictionSystem:
     def __init__(self):
         self.team_stats = self._initialize_stats()
         self.league_factors = self._initialize_league_factors()
-        self.form_history = {}
     
     def _initialize_stats(self) -> Dict:
         """Initialise les statistiques détaillées des équipes"""
@@ -71,6 +70,12 @@ class AdvancedPredictionSystem:
             'Benfica': {'attack': 83, 'defense': 81, 'home': 85, 'away': 79, 'form': 82, 'morale': 83},
             'Ajax': {'attack': 82, 'defense': 80, 'home': 84, 'away': 78, 'form': 79, 'morale': 80},
             'PSV': {'attack': 81, 'defense': 79, 'home': 83, 'away': 77, 'form': 84, 'morale': 85},
+            
+            # Équipes françaises supplémentaires
+            'Lens': {'attack': 82, 'defense': 83, 'home': 84, 'away': 78, 'form': 82, 'morale': 83},
+            'Rennes': {'attack': 83, 'defense': 80, 'home': 85, 'away': 78, 'form': 81, 'morale': 82},
+            'Nantes': {'attack': 75, 'defense': 78, 'home': 78, 'away': 72, 'form': 74, 'morale': 75},
+            'Brest': {'attack': 79, 'defense': 81, 'home': 82, 'away': 76, 'form': 85, 'morale': 87},
         }
     
     def _initialize_league_factors(self) -> Dict:
@@ -118,50 +123,50 @@ class AdvancedPredictionSystem:
             
             # Appliquer les données personnalisées si fournies
             if custom_data:
-                home_data = self._apply_custom_data(home_data, custom_data.get('home_team', {}))
-                away_data = self._apply_custom_data(away_data, custom_data.get('away_team', {}))
+                home_data = self.apply_custom_data(home_data, custom_data.get('home_team', {}))
+                away_data = self.apply_custom_data(away_data, custom_data.get('away_team', {}))
                 league = custom_data.get('league', league)
             
             # Facteurs de ligue
             league_factors = self.league_factors.get(league, self.league_factors['Autre'])
             
             # Calcul des forces
-            home_strength = self._calculate_team_strength(home_data, is_home=True, league_factors=league_factors)
-            away_strength = self._calculate_team_strength(away_data, is_home=False, league_factors=league_factors)
+            home_strength = self.calculate_team_strength(home_data, is_home=True, league_factors=league_factors)
+            away_strength = self.calculate_team_strength(away_data, is_home=False, league_factors=league_factors)
             
             # Ajustements supplémentaires
-            home_strength = self._apply_adjustments(home_strength, home_data, 'home')
-            away_strength = self._apply_adjustments(away_strength, away_data, 'away')
+            home_strength = self.apply_adjustments(home_strength, home_data, 'home')
+            away_strength = self.apply_adjustments(away_strength, away_data, 'away')
             
             # Calcul des probabilités
-            home_prob, draw_prob, away_prob = self._calculate_probabilities(
+            home_prob, draw_prob, away_prob = self.calculate_probabilities(
                 home_strength, away_strength, league_factors
             )
             
             # Score prédit
-            home_goals, away_goals = self._predict_score(home_data, away_data, league_factors)
+            home_goals, away_goals = self.predict_score(home_data, away_data, league_factors)
             
             # Over/Under et BTTS
-            over_under, over_prob = self._calculate_over_under(home_goals, away_goals)
-            btts, btts_prob = self._calculate_btts(home_goals, away_goals)
+            over_under, over_prob = self.calculate_over_under(home_goals, away_goals)
+            btts, btts_prob = self.calculate_btts(home_goals, away_goals)
             
             # Cotes
-            odds = self._calculate_odds(home_prob, draw_prob, away_prob)
+            odds = self.calculate_odds(home_prob, draw_prob, away_prob)
             
             # Prédiction principale et confiance
-            main_pred, pred_type, confidence = self._get_main_prediction(
+            main_pred, pred_type, confidence = self.get_main_prediction(
                 home_team, away_team, home_prob, draw_prob, away_prob
             )
             
             # Analyse détaillée
-            analysis = self._generate_detailed_analysis(
+            analysis = self.generate_detailed_analysis(
                 home_team, away_team, league, home_data, away_data,
                 home_prob, draw_prob, away_prob, home_goals, away_goals,
                 confidence, custom_data
             )
             
             # Statistiques détaillées
-            detailed_stats = self._generate_detailed_stats(
+            detailed_stats = self.generate_detailed_stats(
                 home_data, away_data, home_goals, away_goals
             )
             
@@ -180,8 +185,8 @@ class AdvancedPredictionSystem:
                 'confidence': round(confidence, 1),
                 'score_prediction': f"{home_goals}-{away_goals}",
                 'expected_goals': {
-                    'home': round(self._calculate_xg(home_data, away_data, True), 2),
-                    'away': round(self._calculate_xg(away_data, home_data, False), 2)
+                    'home': round(self.calculate_xg(home_data, away_data, True), 2),
+                    'away': round(self.calculate_xg(away_data, home_data, False), 2)
                 },
                 'over_under': over_under,
                 'over_prob': round(over_prob, 1),
@@ -197,7 +202,7 @@ class AdvancedPredictionSystem:
             st.error(f"Erreur dans l'analyse: {str(e)}")
             return None
     
-    def _apply_custom_data(self, base_data: Dict, custom_data: Dict) -> Dict:
+    def apply_custom_data(self, base_data: Dict, custom_data: Dict) -> Dict:
         """Applique les données personnalisées aux statistiques de base"""
         if not custom_data:
             return base_data
@@ -205,26 +210,24 @@ class AdvancedPredictionSystem:
         updated_data = base_data.copy()
         
         # Ajuster les statistiques en fonction des données personnalisées
-        factors = {
-            'forme': 0.15,  # 15% d'impact
-            'blessures': -0.10,  # -10% par joueur important blessé
-            'suspensions': -0.08,  # -8% par suspension
-            'motivation': 0.12,  # 12% d'impact
-            'fatigue': -0.07,  # -7% d'impact
-        }
+        if 'forme' in custom_data:
+            form_factor = custom_data['forme']
+            updated_data['form'] = min(100, max(0, updated_data['form'] + form_factor * 10))
         
-        for key, factor in factors.items():
-            if key in custom_data:
-                value = custom_data[key]
-                if isinstance(value, (int, float)):
-                    # Ajustement proportionnel
-                    adjustment = 1 + (value * factor)
-                    updated_data['attack'] = min(100, max(0, updated_data['attack'] * adjustment))
-                    updated_data['defense'] = min(100, max(0, updated_data['defense'] * adjustment))
+        if 'motivation' in custom_data:
+            morale_factor = custom_data['motivation']
+            updated_data['morale'] = min(100, max(0, updated_data['morale'] + morale_factor * 10))
+        
+        if 'blessures' in custom_data:
+            injury_factor = custom_data['blessures']
+            # Les blessures affectent l'attaque et la défense
+            injury_impact = injury_factor * 5  # 5% d'impact par unité
+            updated_data['attack'] = max(0, updated_data['attack'] - injury_impact)
+            updated_data['defense'] = max(0, updated_data['defense'] - injury_impact)
         
         return updated_data
     
-    def _calculate_team_strength(self, team_data: Dict, is_home: bool, league_factors: Dict) -> float:
+    def calculate_team_strength(self, team_data: Dict, is_home: bool, league_factors: Dict) -> float:
         """Calcule la force d'une équipe"""
         base_strength = (
             team_data['attack'] * 0.35 +
@@ -242,7 +245,7 @@ class AdvancedPredictionSystem:
         
         return base_strength
     
-    def _apply_adjustments(self, strength: float, team_data: Dict, location: str) -> float:
+    def apply_adjustments(self, strength: float, team_data: Dict, location: str) -> float:
         """Applique des ajustements supplémentaires"""
         # Ajustement selon la forme récente
         form_adjustment = 1.0 + ((team_data['form'] - 75) / 100) * 0.3
@@ -252,7 +255,7 @@ class AdvancedPredictionSystem:
         
         return strength * form_adjustment * morale_adjustment
     
-    def _calculate_probabilities(self, home_strength: float, away_strength: float, 
+    def calculate_probabilities(self, home_strength: float, away_strength: float, 
                                 league_factors: Dict) -> Tuple[float, float, float]:
         """Calcule les probabilités de résultat"""
         total_strength = home_strength + away_strength
@@ -272,15 +275,15 @@ class AdvancedPredictionSystem:
         
         return home_prob, draw_prob, away_prob
     
-    def _predict_score(self, home_data: Dict, away_data: Dict, league_factors: Dict) -> Tuple[int, int]:
+    def predict_score(self, home_data: Dict, away_data: Dict, league_factors: Dict) -> Tuple[int, int]:
         """Prédit le score final"""
         # xG attendus
-        home_xg = self._calculate_xg(home_data, away_data, True) * league_factors['goals']
-        away_xg = self._calculate_xg(away_data, home_data, False) * league_factors['goals']
+        home_xg = self.calculate_xg(home_data, away_data, True) * league_factors['goals']
+        away_xg = self.calculate_xg(away_data, home_data, False) * league_factors['goals']
         
         # Conversion en buts avec variabilité
-        home_goals = self._xg_to_goals(home_xg, is_home=True)
-        away_goals = self._xg_to_goals(away_xg, is_home=False)
+        home_goals = self.xg_to_goals(home_xg, is_home=True)
+        away_goals = self.xg_to_goals(away_xg, is_home=False)
         
         # Ajustement final
         home_goals = max(0, home_goals)
@@ -297,7 +300,7 @@ class AdvancedPredictionSystem:
         
         return int(round(home_goals)), int(round(away_goals))
     
-    def _calculate_xg(self, attacking_team: Dict, defending_team: Dict, is_home: bool) -> float:
+    def calculate_xg(self, attacking_team: Dict, defending_team: Dict, is_home: bool) -> float:
         """Calcule les xG (expected goals)"""
         attack_factor = attacking_team['attack'] / 100
         defense_factor = (100 - defending_team['defense']) / 100
@@ -310,7 +313,7 @@ class AdvancedPredictionSystem:
         
         return base_xg * variability
     
-    def _xg_to_goals(self, xg: float, is_home: bool) -> float:
+    def xg_to_goals(self, xg: float, is_home: bool) -> float:
         """Convertit les xG en buts réels"""
         # Simulation de Poisson simplifiée
         goals = 0
@@ -329,7 +332,7 @@ class AdvancedPredictionSystem:
         
         return goals
     
-    def _calculate_over_under(self, home_goals: int, away_goals: int) -> Tuple[str, float]:
+    def calculate_over_under(self, home_goals: int, away_goals: int) -> Tuple[str, float]:
         """Calcule Over/Under 2.5"""
         total_goals = home_goals + away_goals
         
@@ -342,7 +345,7 @@ class AdvancedPredictionSystem:
         
         return result, probability
     
-    def _calculate_btts(self, home_goals: int, away_goals: int) -> Tuple[str, float]:
+    def calculate_btts(self, home_goals: int, away_goals: int) -> Tuple[str, float]:
         """Calcule Both Teams To Score"""
         if home_goals > 0 and away_goals > 0:
             result = "Oui"
@@ -353,7 +356,7 @@ class AdvancedPredictionSystem:
         
         return result, probability
     
-    def _calculate_odds(self, home_prob: float, draw_prob: float, away_prob: float) -> Dict:
+    def calculate_odds(self, home_prob: float, draw_prob: float, away_prob: float) -> Dict:
         """Calcule les cotes décimales"""
         margin = 1.05  # Marge de bookmaker
         
@@ -366,15 +369,22 @@ class AdvancedPredictionSystem:
         draw_odd = max(2.0, min(8.0, draw_odd))
         away_odd = max(1.5, min(12.0, away_odd))
         
+        # Cotes combinées
+        home_draw_prob = home_prob + draw_prob
+        draw_away_prob = draw_prob + away_prob
+        
+        home_draw_odd = round(1 / (home_draw_prob / 100) * margin, 2)
+        draw_away_odd = round(1 / (draw_away_prob / 100) * margin, 2)
+        
         return {
             'home': home_odd,
             'draw': draw_odd,
             'away': away_odd,
-            '1X': round(1 / ((home_prob + draw_prob) / 100) * margin, 2),
-            'X2': round(1 / ((draw_prob + away_prob) / 100) * margin, 2),
+            '1X': home_draw_odd,
+            'X2': draw_away_odd,
         }
     
-    def _get_main_prediction(self, home_team: str, away_team: str,
+    def get_main_prediction(self, home_team: str, away_team: str,
                             home_prob: float, draw_prob: float, away_prob: float) -> Tuple[str, str, float]:
         """Détermine la prédiction principale"""
         if home_prob >= away_prob and home_prob >= draw_prob:
@@ -392,7 +402,7 @@ class AdvancedPredictionSystem:
         
         return main_pred, pred_type, confidence
     
-    def _generate_detailed_analysis(self, home_team: str, away_team: str, league: str,
+    def generate_detailed_analysis(self, home_team: str, away_team: str, league: str,
                                   home_data: Dict, away_data: Dict,
                                   home_prob: float, draw_prob: float, away_prob: float,
                                   home_goals: int, away_goals: int,
@@ -483,25 +493,32 @@ class AdvancedPredictionSystem:
             home_custom = custom_data.get('home_team', {})
             away_custom = custom_data.get('away_team', {})
             
-            for key, value in home_custom.items():
-                if isinstance(value, (int, float)) and value != 0:
-                    analysis.append(f"- {home_team}: {key} = {value}")
+            custom_factors = {
+                'forme': 'Forme ajustée',
+                'blessures': 'Impact blessures',
+                'motivation': 'Motivation ajustée'
+            }
             
-            for key, value in away_custom.items():
-                if isinstance(value, (int, float)) and value != 0:
-                    analysis.append(f"- {away_team}: {key} = {value}")
+            for key, label in custom_factors.items():
+                if key in home_custom and home_custom[key] != 0:
+                    analysis.append(f"- {home_team}: {label} = {home_custom[key]:+.1f}")
+                
+                if key in away_custom and away_custom[key] != 0:
+                    analysis.append(f"- {away_team}: {label} = {away_custom[key]:+.1f}")
         
         analysis.append("")
         
         # Conseils de pari
         analysis.append("### 💰 CONSEILS DE PARI")
         
+        main_pred, pred_type, _ = self.get_main_prediction(home_team, away_team, home_prob, draw_prob, away_prob)
+        
         if confidence >= 75:
             analysis.append("- **PRONOSTIC FORT** - Bonne valeur")
-            analysis.append(f"- Pari recommandé: **{self._get_main_prediction(home_team, away_team, home_prob, draw_prob, away_prob)[0]}**")
+            analysis.append(f"- Pari recommandé: **{main_pred}**")
         elif confidence >= 65:
             analysis.append("- **PRONOSTIC MOYEN** - Valeur correcte")
-            analysis.append(f"- Pari envisageable: **{self._get_main_prediction(home_team, away_team, home_prob, draw_prob, away_prob)[0]}**")
+            analysis.append(f"- Pari envisageable: **{main_pred}**")
         else:
             analysis.append("- **PRONOSTIC RISQUÉ** - À éviter ou petites mises")
             analysis.append("- Mise réduite recommandée")
@@ -512,7 +529,7 @@ class AdvancedPredictionSystem:
         
         return '\n'.join(analysis)
     
-    def _generate_detailed_stats(self, home_data: Dict, away_data: Dict, 
+    def generate_detailed_stats(self, home_data: Dict, away_data: Dict, 
                                 home_goals: int, away_goals: int) -> Dict:
         """Génère des statistiques détaillées"""
         return {
@@ -538,11 +555,11 @@ class AdvancedPredictionSystem:
         }
 
 # =============================================================================
-# APPLICATION STREAMLIT
+# APPLICATION STREAMLIT - CORRIGÉE
 # =============================================================================
 
 def main():
-    """Application principale avec entrée manuelle"""
+    """Application principale avec entrée manuelle - CORRIGÉE"""
     
     st.set_page_config(
         page_title="Pronostics Personnalisés",
@@ -612,6 +629,13 @@ def main():
         border-radius: 10px;
         margin: 10px 0;
     }
+    .success-message {
+        background: #C8E6C9;
+        color: #2E7D32;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
+    }
     </style>
     """, unsafe_allow_html=True)
     
@@ -625,12 +649,13 @@ def main():
     if 'prediction_system' not in st.session_state:
         st.session_state.prediction_system = AdvancedPredictionSystem()
     
+    # Initialisation de l'historique
+    if 'analysis_history' not in st.session_state:
+        st.session_state.analysis_history = []
+    
     # Sidebar pour l'historique
     with st.sidebar:
         st.markdown("## 📋 HISTORIQUE")
-        
-        if 'analysis_history' not in st.session_state:
-            st.session_state.analysis_history = []
         
         if st.session_state.analysis_history:
             for i, analysis in enumerate(reversed(st.session_state.analysis_history[-5:])):
@@ -640,9 +665,12 @@ def main():
                     st.write(f"**Pronostic:** {analysis['main_prediction']}")
                     st.write(f"**Confiance:** {analysis['confidence']}%")
                     
-                    if st.button(f"🔁 Réutiliser #{len(st.session_state.analysis_history)-i}", key=f"reuse_{i}"):
-                        st.session_state.last_analysis = analysis
+                    if st.button(f"🔁 Réutiliser", key=f"reuse_{i}"):
+                        # Pré-remplir les champs avec cette analyse
+                        st.session_state.previous_analysis = analysis
                         st.rerun()
+        else:
+            st.info("Aucune analyse dans l'historique")
         
         st.markdown("---")
         st.markdown("## ⚙️ PARAMÈTRES")
@@ -659,9 +687,24 @@ def main():
             
             st.metric("Analyses effectuées", total_analyses)
             st.metric("Confiance moyenne", f"{avg_confidence:.1f}%")
+        else:
+            st.metric("Analyses effectuées", 0)
+            st.metric("Confiance moyenne", "0%")
+        
+        st.markdown("---")
+        st.markdown("### 💡 CONSEILS")
+        st.caption("""
+        - Saisissez des noms d'équipes précis
+        - Ajustez les facteurs selon l'actualité
+        - Comparez avec l'historique
+        - Utilisez les données personnalisées
+        """)
     
     # Contenu principal
     st.markdown("## 🎯 SAISIE DU MATCH")
+    
+    # Vérifier si on a une analyse précédente à réutiliser
+    previous_analysis = st.session_state.get('previous_analysis', None)
     
     # Formulaire de saisie
     with st.container():
@@ -672,22 +715,30 @@ def main():
         with col1:
             st.markdown("### 🏠 ÉQUIPE À DOMICILE")
             home_team = st.text_input("Nom de l'équipe", key="home_team", 
-                                      value=st.session_state.get('last_analysis', {}).get('home_team', ''))
+                                      value=previous_analysis['home_team'] if previous_analysis else "Paris SG")
             
             st.markdown("#### 📊 Données personnalisées")
-            home_form = st.slider("Forme récente (0-100)", 0, 100, 75, key="home_form")
+            home_form = st.slider("Forme récente (0-100)", 0, 100, 
+                                 previous_analysis['detailed_stats']['home_team']['form_level'] if previous_analysis else 75, 
+                                 key="home_form")
             home_injuries = st.slider("Impact des blessures (0-10)", 0, 10, 0, key="home_injuries")
-            home_motivation = st.slider("Motivation (0-100)", 0, 100, 75, key="home_motivation")
+            home_motivation = st.slider("Motivation (0-100)", 0, 100, 
+                                       previous_analysis['detailed_stats']['home_team']['morale_level'] if previous_analysis else 75, 
+                                       key="home_motivation")
             
         with col2:
             st.markdown("### 🏃 ÉQUIPE À L'EXTERIEUR")
             away_team = st.text_input("Nom de l'équipe", key="away_team",
-                                      value=st.session_state.get('last_analysis', {}).get('away_team', ''))
+                                     value=previous_analysis['away_team'] if previous_analysis else "Lille")
             
             st.markdown("#### 📊 Données personnalisées")
-            away_form = st.slider("Forme récente (0-100)", 0, 100, 75, key="away_form")
+            away_form = st.slider("Forme récente (0-100)", 0, 100, 
+                                 previous_analysis['detailed_stats']['away_team']['form_level'] if previous_analysis else 75, 
+                                 key="away_form")
             away_injuries = st.slider("Impact des blessures (0-10)", 0, 10, 0, key="away_injuries")
-            away_motivation = st.slider("Motivation (0-100)", 0, 100, 75, key="away_motivation")
+            away_motivation = st.slider("Motivation (0-100)", 0, 100, 
+                                       previous_analysis['detailed_stats']['away_team']['morale_level'] if previous_analysis else 75, 
+                                       key="away_motivation")
         
         st.markdown("---")
         
@@ -695,9 +746,18 @@ def main():
         
         with col3:
             st.markdown("### 🏆 COMPÉTITION")
-            league_options = ['Premier League', 'Ligue 1', 'La Liga', 'Bundesliga', 
+            league_options = ['Ligue 1', 'Premier League', 'La Liga', 'Bundesliga', 
                             'Serie A', 'Champions League', 'Europa League', 'Ligue 2', 'Autre']
-            league = st.selectbox("Sélectionnez la ligue", league_options, index=0)
+            
+            # Déterminer l'index par défaut
+            default_index = 0
+            if previous_analysis:
+                try:
+                    default_index = league_options.index(previous_analysis['league'])
+                except:
+                    default_index = 0
+            
+            league = st.selectbox("Sélectionnez la ligue", league_options, index=default_index)
         
         with col4:
             st.markdown("### 📅 DATE DU MATCH")
@@ -709,41 +769,47 @@ def main():
         # Bouton d'analyse
         col5, col6, col7 = st.columns([1, 2, 1])
         with col6:
-            if st.button("🎯 ANALYSER LE MATCH", type="primary", use_container_width=True):
-                if home_team and away_team:
-                    with st.spinner("Analyse en cours..."):
-                        # Préparer les données personnalisées
-                        custom_data = {
-                            'home_team': {
-                                'forme': (home_form - 75) / 25,  # Normalisé entre -1 et 1
-                                'blessures': home_injuries / 5,  # Normalisé entre 0 et 2
-                                'motivation': (home_motivation - 75) / 25,
-                            },
-                            'away_team': {
-                                'forme': (away_form - 75) / 25,
-                                'blessures': away_injuries / 5,
-                                'motivation': (away_motivation - 75) / 25,
-                            },
-                            'league': league,
-                            'date': match_date.strftime('%Y-%m-%d'),
-                            'time': match_time.strftime('%H:%M'),
-                        }
-                        
-                        # Effectuer l'analyse
-                        result = st.session_state.prediction_system.analyze_match(
-                            home_team, away_team, league, custom_data
-                        )
-                        
-                        if result:
-                            st.session_state.last_result = result
-                            st.session_state.analysis_history.append(result)
-                            st.success("✅ Analyse terminée !")
-                        else:
-                            st.error("❌ Erreur lors de l'analyse")
-                else:
-                    st.warning("⚠️ Veuillez saisir les noms des deux équipes")
+            analyze_button = st.button("🎯 ANALYSER LE MATCH", type="primary", use_container_width=True)
         
         st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Traitement de l'analyse
+    if analyze_button:
+        if home_team and away_team:
+            with st.spinner("Analyse en cours..."):
+                # Préparer les données personnalisées
+                custom_data = {
+                    'home_team': {
+                        'forme': (home_form - 75) / 25,  # Normalisé entre -1 et 1
+                        'blessures': home_injuries / 5,  # Normalisé entre 0 et 2
+                        'motivation': (home_motivation - 75) / 25,
+                    },
+                    'away_team': {
+                        'forme': (away_form - 75) / 25,
+                        'blessures': away_injuries / 5,
+                        'motivation': (away_motivation - 75) / 25,
+                    },
+                    'league': league,
+                    'date': match_date.strftime('%Y-%m-%d'),
+                    'time': match_time.strftime('%H:%M'),
+                }
+                
+                # Effectuer l'analyse
+                result = st.session_state.prediction_system.analyze_match(
+                    home_team, away_team, league, custom_data
+                )
+                
+                if result:
+                    st.session_state.last_result = result
+                    st.session_state.analysis_history.append(result)
+                    # Nettoyer l'analyse précédente pour éviter la réutilisation involontaire
+                    if 'previous_analysis' in st.session_state:
+                        del st.session_state.previous_analysis
+                    st.markdown('<div class="success-message">✅ Analyse terminée avec succès !</div>', unsafe_allow_html=True)
+                else:
+                    st.error("❌ Erreur lors de l'analyse. Vérifiez les données saisies.")
+        else:
+            st.warning("⚠️ Veuillez saisir les noms des deux équipes")
     
     # Affichage des résultats
     if 'last_result' in st.session_state:
@@ -783,7 +849,7 @@ def main():
             
             with col2:
                 st.markdown('<div class="stat-card">', unsafe_allow_html=True)
-                st.markdown("**🎯 CONFIANC**")
+                st.markdown("**🎯 CONFIANCE**")
                 st.markdown(f"## {result['confidence']}%")
                 st.markdown("Fiabilité")
                 st.markdown("</div>", unsafe_allow_html=True)
@@ -830,6 +896,25 @@ def main():
                     st.json(result['detailed_stats'])
             
             st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        # Message d'accueil
+        st.info("""
+        ### 👋 Bienvenue dans le système de pronostics personnalisés !
+        
+        **Pour commencer :**
+        1. 🏠 **Saisissez l'équipe à domicile**
+        2. 🏃 **Saisissez l'équipe à l'extérieur**
+        3. 📊 **Ajustez les données personnalisées** (forme, blessures, motivation)
+        4. 🏆 **Sélectionnez la compétition**
+        5. 📅 **Choisissez la date et l'heure**
+        6. 🎯 **Cliquez sur "Analyser le match"**
+        
+        **Équipes disponibles :** Manchester City, Arsenal, Liverpool, Chelsea, Tottenham, 
+        Manchester United, Paris SG, Lille, Marseille, Monaco, Lyon, Nice, Real Madrid, 
+        Barcelona, Atlético Madrid, Bayern Munich, Borussia Dortmund, Inter Milan, Juventus, etc.
+        
+        *Vous pouvez également saisir n'importe quelle autre équipe - le système s'adaptera automatiquement.*
+        """)
     
     # Section d'explication
     with st.expander("❓ COMMENT FONCTIONNE L'ANALYSE ?"):
@@ -882,21 +967,34 @@ def main():
         st.markdown("""
         ### 📋 Matchs intéressants à analyser :
         
-        **Ce week-end :**
-        - Paris SG vs Lille (Ligue 1)
-        - Manchester City vs Arsenal (Premier League)
-        - Real Madrid vs Atlético Madrid (La Liga)
-        - Inter Milan vs Juventus (Serie A)
-        - Bayern Munich vs Borussia Dortmund (Bundesliga)
+        **Ligue 1 :**
+        - Paris SG vs Lille
+        - Marseille vs Monaco
+        - Lyon vs Nice
+        - Lens vs Rennes
+        
+        **Premier League :**
+        - Manchester City vs Arsenal
+        - Liverpool vs Chelsea
+        - Tottenham vs Manchester United
+        
+        **La Liga :**
+        - Real Madrid vs Barcelona (El Clásico)
+        - Real Madrid vs Atlético Madrid (Derby Madrilène)
+        - Barcelona vs Sevilla
+        
+        **Bundesliga :**
+        - Bayern Munich vs Borussia Dortmund (Derby Allemand)
+        - Bayer Leverkusen vs RB Leipzig
+        
+        **Serie A :**
+        - Inter Milan vs Juventus (Derby d'Italie)
+        - AC Milan vs AS Roma
+        - Napoli vs Lazio
         
         **Matchs européens :**
-        - Champions League : Demi-finales
-        - Europa League : Quarts de finale
-        
-        **Matchs à enjeu :**
-        - Relégation : équipes en bas de classement
-        - Qualification Europe : matchs décisifs
-        - Derbys locaux
+        - Champions League : toutes les phases finales
+        - Europa League : matchs à enjeu
         """)
 
 if __name__ == "__main__":
