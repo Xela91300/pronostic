@@ -509,71 +509,6 @@ class BankrollManager:
         kelly_fraction *= fraction
         
         return kelly_fraction * bankroll
-    
-    def place_bet(self, amount, odds, probability, result=None):
-        """Place un pari"""
-        if amount > self.current_bankroll:
-            return {"error": "Fonds insuffisants"}
-        
-        bet_id = len(self.bet_history) + 1
-        bet = {
-            'id': bet_id,
-            'date': datetime.now(),
-            'amount': amount,
-            'odds': odds,
-            'probability': probability,
-            'potential_win': amount * (odds - 1),
-            'result': result,
-            'status': 'pending'
-        }
-        
-        self.current_bankroll -= amount
-        self.bet_history.append(bet)
-        self.performance['total_bets'] += 1
-        self.performance['total_staked'] += amount
-        
-        return bet
-    
-    def settle_bet(self, bet_id, result):
-        """Règle un pari"""
-        for bet in self.bet_history:
-            if bet['id'] == bet_id and bet['status'] == 'pending':
-                bet['result'] = result
-                bet['status'] = 'settled'
-                
-                if result == 'win':
-                    winnings = bet['amount'] * bet['odds']
-                    self.current_bankroll += winnings
-                    self.performance['won_bets'] += 1
-                    self.performance['total_return'] += winnings
-                    self.performance['current_streak'] = max(0, self.performance['current_streak'] + 1)
-                    
-                    if winnings > self.performance['biggest_win']:
-                        self.performance['biggest_win'] = winnings
-                
-                elif result == 'loss':
-                    self.performance['lost_bets'] += 1
-                    self.performance['current_streak'] = min(0, self.performance['current_streak'] - 1)
-                    
-                    if bet['amount'] > self.performance['biggest_loss']:
-                        self.performance['biggest_loss'] = bet['amount']
-                
-                # Mettre à jour ROI
-                if self.performance['total_staked'] > 0:
-                    self.performance['roi'] = (
-                        (self.performance['total_return'] - self.performance['total_staked']) / 
-                        self.performance['total_staked'] * 100
-                    )
-                
-                # Mettre à jour les séries
-                if self.performance['current_streak'] > self.performance['longest_win_streak']:
-                    self.performance['longest_win_streak'] = self.performance['current_streak']
-                elif abs(self.performance['current_streak']) > self.performance['longest_loss_streak']:
-                    self.performance['longest_loss_streak'] = abs(self.performance['current_streak'])
-                
-                return bet
-        
-        return {"error": "Pari non trouvé"}
 
 # =============================================================================
 # FONCTIONS D'AFFICHAGE
@@ -650,159 +585,376 @@ def display_dashboard():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        bankroll_change = st.session_state.bankroll.current_bankroll - st.session_state.bankroll.initial_bankroll
+        bankroll = 10000  # Valeur par défaut
+        bankroll_change = 0
         st.metric(
             "💰 Bankroll",
-            f"€{st.session_state.bankroll.current_bankroll:,.0f}",
+            f"€{bankroll:,.0f}",
             f"€{bankroll_change:+,.0f}"
         )
     
     with col2:
-        total_bets = st.session_state.bankroll.performance['total_bets']
-        won_bets = st.session_state.bankroll.performance['won_bets']
-        win_rate = (won_bets / total_bets * 100) if total_bets > 0 else 0
+        total_bets = 0
+        won_bets = 0
+        win_rate = 0
         st.metric("📈 Hit Rate", f"{win_rate:.1f}%", f"{total_bets} paris")
     
     with col3:
-        roi = st.session_state.bankroll.performance['roi']
+        roi = 0
         st.metric("🎯 ROI", f"{roi:.1f}%", "Cumulé")
     
     with col4:
-        value_bets = len([m for m in st.session_state.get('upcoming_matches', []) 
-                         if m.get('value_bet')])
+        value_bets = 0
         st.metric("⚡ Value Bets", value_bets, "Aujourd'hui")
     
-    # Évolution Bankroll
-    st.subheader("📈 Évolution du Bankroll")
+    # Bouton pour générer des données
+    st.subheader("🎲 Générer des Données Démo")
     
-    if st.session_state.bankroll.bet_history:
-        dates = [bet['date'].strftime('%Y-%m-%d') for bet in st.session_state.bankroll.bet_history]
-        amounts = []
-        current = st.session_state.bankroll.initial_bankroll
-        
-        for bet in st.session_state.bankroll.bet_history:
-            if bet.get('result') == 'win':
-                current += bet['potential_win']
-            amounts.append(current)
-        
-        # Créer un tableau pour l'évolution
-        evolution_df = pd.DataFrame({
-            'Date': dates,
-            'Bankroll': amounts
-        })
-        
-        # Afficher sous forme de tableau avec graphique
-        st.line_chart(evolution_df.set_index('Date'))
-    else:
-        st.info("Aucun pari enregistré")
+    if st.button("Générer des matchs de démo", type="primary"):
+        with st.spinner("Génération des données..."):
+            time.sleep(2)
+            st.success("Données générées avec succès!")
     
-    # Top Value Bets
-    st.subheader("🏆 Top Value Bets")
+    # Instructions
+    st.subheader("📋 Instructions")
     
-    upcoming_matches = st.session_state.get('upcoming_matches', [])
-    value_bets_list = [m for m in upcoming_matches if m.get('value_bet')]
+    st.info("""
+    **Comment utiliser ce système:**
     
-    if value_bets_list:
-        # Trier par score de value
-        value_bets_list.sort(key=lambda x: x.get('value_score', 0), reverse=True)
-        
-        for i, match in enumerate(value_bets_list[:5], 1):
-            with st.container():
-                col1, col2, col3 = st.columns([3, 1, 1])
-                with col1:
-                    st.write(f"**#{i} - {match['home_name']} vs {match['away_name']}**")
-                    st.write(f"*{match['league']} - {match['date']}*")
-                with col2:
-                    st.metric("Edge", f"{match.get('edge', 0)*100:.1f}%")
-                with col3:
-                    st.metric("Score", f"{match.get('value_score', 0):.1f}")
-                st.divider()
-    else:
-        st.info("Aucun value bet détecté pour le moment")
+    1. **Sélectionnez une ligue** dans la sidebar
+    2. **Générez des matchs** avec le bouton ci-dessus
+    3. **Explorez les Value Bets** dans l'onglet correspondant
+    4. **Analysez les performances** dans l'onglet Bankroll
+    
+    *Ceci est une version démo avec données simulées.*
+    """)
 
 def display_value_bets():
     """Affiche les value bets"""
     st.header("🎯 Détection de Value Bets")
     
-    if 'upcoming_matches' not in st.session_state:
-        st.warning("Générez d'abord des matchs depuis le Dashboard")
-        return
+    # Exemples de value bets
+    st.info("Voici des exemples de value bets détectés:")
     
-    # Filtres
-    col1, col2, col3 = st.columns(3)
+    value_bets_examples = [
+        {
+            "match": "Manchester City vs Liverpool",
+            "league": "Premier League",
+            "type": "Home",
+            "edge": "4.2%",
+            "odds": "2.10",
+            "probability": "52%",
+            "stake": "€185"
+        },
+        {
+            "match": "Real Madrid vs Barcelona",
+            "league": "La Liga",
+            "type": "Draw",
+            "edge": "3.8%",
+            "odds": "3.40",
+            "probability": "31%",
+            "stake": "€120"
+        },
+        {
+            "match": "Bayern Munich vs Dortmund",
+            "league": "Bundesliga",
+            "type": "Home",
+            "edge": "2.5%",
+            "odds": "1.65",
+            "probability": "63%",
+            "stake": "€95"
+        }
+    ]
+    
+    for bet in value_bets_examples:
+        with st.expander(f"🏆 **{bet['match']}** - Edge: {bet['edge']}"):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write(f"**Ligue:** {bet['league']}")
+                st.write(f"**Type de pari:** {bet['type']}")
+                st.write(f"**Probabilité modèle:** {bet['probability']}")
+            with col2:
+                st.write(f"**Cote bookmaker:** {bet['odds']}")
+                st.write(f"**Mise recommandée:** {bet['stake']}")
+                st.write(f"**Edge (valeur):** {bet['edge']}")
+    
+    # Explication
+    st.subheader("📊 Comment fonctionne la détection?")
+    
+    st.write("""
+    Le système utilise plusieurs facteurs pour détecter les value bets:
+    
+    1. **Rating Elo**: Évalue la force des équipes
+    2. **Forme récente**: Performance sur les 5 derniers matchs
+    3. **Avantage terrain**: +70 points Elo pour l'équipe à domicile
+    4. **Probabilités calculées**: Basées sur la différence Elo
+    5. **Cotes du marché**: Comparaison avec les bookmakers
+    
+    Un **value bet** est détecté quand:
+    ```
+    Probabilité_modèle > Probabilité_implicite + Marge_seuil
+    ```
+    Où la probabilité implicite = 1 / Cote
+    """)
+
+def display_bankroll():
+    """Affiche la gestion de bankroll"""
+    st.header("💰 Gestion de Bankroll")
+    
+    # Simulation de bankroll
+    st.subheader("📈 Simulation de Bankroll")
+    
+    initial_bankroll = st.number_input("Bankroll initial (€)", value=10000, min_value=1000, max_value=100000)
+    num_bets = st.slider("Nombre de paris", 10, 1000, 100)
+    win_rate = st.slider("Taux de réussite (%)", 30, 70, 55)
+    avg_odds = st.slider("Cote moyenne", 1.5, 3.0, 2.1)
+    
+    if st.button("Simuler la performance", type="primary"):
+        # Simulation simple
+        bankroll = initial_bankroll
+        bankroll_history = [bankroll]
+        
+        for i in range(num_bets):
+            # Pari de 2% du bankroll
+            stake = bankroll * 0.02
+            win = random.random() < (win_rate / 100)
+            
+            if win:
+                bankroll += stake * (avg_odds - 1)
+            else:
+                bankroll -= stake
+            
+            bankroll_history.append(bankroll)
+        
+        # Graphique
+        chart_data = pd.DataFrame({
+            'Pari': range(len(bankroll_history)),
+            'Bankroll': bankroll_history
+        })
+        
+        st.line_chart(chart_data.set_index('Pari'))
+        
+        # Statistiques
+        final_bankroll = bankroll_history[-1]
+        roi = ((final_bankroll - initial_bankroll) / initial_bankroll) * 100
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Bankroll final", f"€{final_bankroll:,.0f}", f"€{final_bankroll-initial_bankroll:+,.0f}")
+        with col2:
+            st.metric("ROI total", f"{roi:.1f}%")
+    
+    # Gestion des risques
+    st.subheader("🎯 Gestion des Risques")
+    
+    st.write("""
+    **Stratégies recommandées:**
+    
+    1. **Critère de Kelly fractionnaire**: Utilisez 25% du Kelly full
+    2. **Limite par pari**: Maximum 2% du bankroll
+    3. **Diversification**: Ne pas parier sur trop de matchs similaires
+    4. **Suivi rigoureux**: Garder un journal de tous les paris
+    
+    **Formule de Kelly:**
+    ```
+    f* = (bp - q) / b
+    où:
+    - b = cote - 1
+    - p = probabilité de gagner
+    - q = 1 - p
+    ```
+    """)
+
+def display_models():
+    """Affiche les modèles IA"""
+    st.header("🤖 Modèles IA")
+    
+    st.subheader("🎯 Système Elo Avancé")
+    
+    st.write("""
+    **Caractéristiques du modèle:**
+    
+    - **Rating Elo dynamique**: Mis à jour après chaque match
+    - **Forme récente**: Moyenne pondérée des 10 derniers matchs
+    - **Avantage terrain**: +70 points Elo pour l'équipe à domicile
+    - **Marge de victoire**: Impacte plus les ratings pour les victoires écrasantes
+    - **Décay temporel**: Les ratings anciens ont moins de poids
+    
+    **Formule de prédiction:**
+    ```
+    P(victoire) = 1 / (1 + 10^((Elo_adv - Elo - Avantage)/400))
+    ```
+    """)
+    
+    # Exemple de prédiction
+    st.subheader("📊 Exemple de Prédiction")
+    
+    col1, col2 = st.columns(2)
     
     with col1:
-        min_edge = st.slider("Edge minimum (%)", 1.0, 10.0, 2.0, 0.5)
+        home_team = st.selectbox(
+            "Équipe à domicile",
+            ["Manchester City", "Liverpool", "Real Madrid", "Bayern Munich"],
+            index=0
+        )
     
     with col2:
-        min_confidence = st.slider("Confiance minimum (%)", 50.0, 95.0, 60.0, 5.0)
+        away_team = st.selectbox(
+            "Équipe à l'extérieur",
+            ["Arsenal", "Chelsea", "Barcelona", "Dortmund"],
+            index=1
+        )
     
-    with col3:
-        leagues = list(set(m['league'] for m in st.session_state.upcoming_matches))
-        league_filter = st.selectbox("Filtrer par ligue", ["Toutes"] + leagues)
-    
-    # Filtrer les matchs
-    filtered_matches = []
-    for match in st.session_state.upcoming_matches:
-        if match.get('value_bet'):
-            edge = match.get('edge', 0) * 100
-            
-            if match['value_bet'] == 'home':
-                prob = match.get('pred_home_win', 0)
-            elif match['value_bet'] == 'draw':
-                prob = match.get('pred_draw', 0)
-            else:
-                prob = match.get('pred_away_win', 0)
-            
-            if (edge >= min_edge and 
-                prob * 100 >= min_confidence and
-                (league_filter == "Toutes" or match['league'] == league_filter)):
-                filtered_matches.append(match)
-    
-    # Afficher les value bets
-    if filtered_matches:
-        st.success(f"🎯 {len(filtered_matches)} value bets détectés!")
+    if st.button("Prédire le match", type="primary"):
+        # Simulation de prédiction
+        home_elo = 2000 if home_team == "Manchester City" else 1900
+        away_elo = 1950 if away_team == "Liverpool" else 1850
         
-        for match in filtered_matches:
-            with st.expander(f"🏆 **{match['home_name']} vs {match['away_name']}** - Edge: {match.get('edge', 0)*100:.1f}%"):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.write(f"**Ligue:** {match['league']}")
-                    st.write(f"**Date:** {match['date']}")
-                    st.write(f"**Type de pari:** {match['value_bet'].upper()}")
+        # Calcul de probabilité
+        home_advantage = 70
+        expected_home = 1 / (1 + 10 ** ((away_elo - home_elo - home_advantage) / 400))
+        expected_away = 1 - expected_home
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Victoire domicile", f"{expected_home*100:.1f}%")
+        with col2:
+            # Probabilité de match nul estimée
+            draw_prob = 0.25 * np.exp(-abs(home_elo - away_elo) / 400)
+            st.metric("Match nul", f"{draw_prob*100:.1f}%")
+        with col3:
+            st.metric("Victoire extérieur", f"{expected_away*100:.1f}%")
+
+# =============================================================================
+# APPLICATION PRINCIPALE
+# =============================================================================
+
+def main():
+    """Fonction principale de l'application"""
+    setup_page()
+    
+    # Initialisation du session state
+    if 'elo_system' not in st.session_state:
+        st.session_state.elo_system = AdvancedEloSystem()
+    
+    if 'data_gen' not in st.session_state:
+        st.session_state.data_gen = DemoDataGenerator(st.session_state.elo_system)
+    
+    if 'bankroll' not in st.session_state:
+        st.session_state.bankroll = 10000
+    
+    # Sidebar
+    with st.sidebar:
+        st.header("⚙️ Configuration")
+        
+        # Sélection de la ligue
+        selected_league = st.selectbox(
+            "🏆 Sélectionner une ligue",
+            list(LEAGUES.keys()),
+            index=0
+        )
+        
+        league_info = LEAGUES[selected_league]
+        
+        # Bankroll
+        st.subheader("💰 Bankroll")
+        bankroll = st.number_input(
+            "Montant initial (€)",
+            min_value=1000,
+            max_value=100000,
+            value=10000,
+            step=500
+        )
+        
+        # Paramètres de risque
+        st.subheader("🎯 Paramètres Risque")
+        
+        kelly_fraction = st.slider(
+            "Fraction de Kelly",
+            min_value=0.1,
+            max_value=1.0,
+            value=0.25,
+            step=0.05,
+            help="Pourcentage du Kelly full à utiliser"
+        )
+        
+        min_edge = st.slider(
+            "Edge minimum (%)",
+            min_value=1.0,
+            max_value=10.0,
+            value=2.0,
+            step=0.5
+        )
+        
+        # Boutons d'action
+        st.subheader("🔄 Actions")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🎯 Générer matchs", type="primary"):
+                with st.spinner("Génération en cours..."):
+                    # Générer des équipes pour la ligue
+                    league_teams = [id for id, data in TEAMS_DATA.items() 
+                                   if data['league'] == league_info['name']]
                     
-                    # Probabilités
-                    st.write("**Probabilités:**")
-                    st.write(f"- Domicile: {match['pred_home_win']*100:.1f}% (cote {match['home_odds']})")
-                    st.write(f"- Nul: {match['pred_draw']*100:.1f}% (cote {match['draw_odds']})")
-                    st.write(f"- Extérieur: {match['pred_away_win']*100:.1f}% (cote {match['away_odds']})")
-                
-                with col2:
-                    # Calculs de value
-                    edge_pct = match.get('edge', 0) * 100
-                    st.metric("📈 Edge", f"{edge_pct:.1f}%")
-                    
-                    # Mise recommandée
-                    if match['value_bet'] == 'home':
-                        prob = match['pred_home_win']
-                        odds = match['home_odds']
-                    elif match['value_bet'] == 'draw':
-                        prob = match['pred_draw']
-                        odds = match['draw_odds']
+                    if league_teams:
+                        # Générer des matchs
+                        matches = st.session_state.data_gen.generate_season_matches(league_teams, 3)
+                        upcoming = st.session_state.data_gen.generate_upcoming_matches(league_teams, 7)
+                        
+                        st.session_state.generated_matches = matches
+                        st.session_state.upcoming_matches = upcoming
+                        
+                        st.success(f"{len(matches)} matchs générés!")
                     else:
-                        prob = match['pred_away_win']
-                        odds = match['away_odds']
-                    
-                    kelly_stake = st.session_state.bankroll.calculate_kelly_stake(
-                        st.session_state.bankroll.current_bankroll,
-                        prob,
-                        odds,
-                        fraction=0.25
-                    )
-                    
-                    st.metric("💰 Mise Kelly", f"€{kelly_stake:,.0f}")
-                    
-                    # Expected Value
-                    ev = kelly_stake * match.get('edge', 0)
-                    st
+                        st.warning(f"Aucune équipe trouvée pour {league_info['name']}")
+        
+        with col2:
+            if st.button("🧹 Réinitialiser"):
+                for key in list(st.session_state.keys()):
+                    if key not in ['elo_system', 'data_gen']:
+                        del st.session_state[key]
+                st.session_state.elo_system = AdvancedEloSystem()
+                st.session_state.data_gen = DemoDataGenerator(st.session_state.elo_system)
+                st.rerun()
+        
+        # Informations
+        st.divider()
+        st.info("""
+        **ℹ️ Mode Démo**
+        
+        Cette application utilise des données simulées pour démontrer le système.
+        
+        Fonctionnalités:
+        - Système Elo avancé
+        - Détection de value bets
+        - Gestion de bankroll
+        - Simulation de paris
+        """)
+    
+    # Onglets principaux
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 Dashboard", 
+        "🎯 Value Bets", 
+        "🤖 Modèles IA", 
+        "💰 Bankroll"
+    ])
+    
+    with tab1:
+        display_dashboard()
+    
+    with tab2:
+        display_value_bets()
+    
+    with tab3:
+        display_models()
+    
+    with tab4:
+        display_bankroll()
+
+# =============================================================================
+# LANCEMENT DE L'APPLICATION
+# =============================================================================
+
+if __name__ == "__main__":
+    main()
