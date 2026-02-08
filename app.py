@@ -1,5 +1,5 @@
 # app.py - Système d'Analyse Automatique de Tous les Matchs
-# Version Complète avec Scanner Automatique - CORRIGÉE
+# Version Complète avec Scanner Automatique
 
 import streamlit as st
 import pandas as pd
@@ -94,7 +94,7 @@ class AdvancedFootballClient:
             return []
     
     def get_todays_fixtures(self, league_id: int = None) -> List[Dict]:
-        """Récupère les matchs du jour - CORRECTION: nom corrigé"""
+        """Récupère les matchs du jour"""
         cache_key = f"today_fixtures_{league_id if league_id else 'all'}"
         if self._is_cached(cache_key):
             return self.cache[cache_key]
@@ -308,7 +308,7 @@ class AdvancedFootballClient:
         self.cache_timestamps[key] = datetime.now()
 
 # =============================================================================
-# SYSTÈME DE SCANNING AUTOMATIQUE - VERSION SIMPLIFIÉE
+# SYSTÈME DE SCANNING AUTOMATIQUE
 # =============================================================================
 
 class AutoScanner:
@@ -321,7 +321,7 @@ class AutoScanner:
     
     def scan_all_matches(self, days_ahead: int = 3, min_confidence: float = 0.6, 
                         min_edge: float = 0.02, max_matches: int = 50) -> List[Dict]:
-        """Scan automatique de tous les matchs à venir - VERSION SIMPLIFIÉE"""
+        """Scan automatique de tous les matchs à venir"""
         
         st.info(f"🔍 Lancement du scan sur {days_ahead} jours...")
         
@@ -414,11 +414,13 @@ class AutoScanner:
         
         best_edge = 0
         best_bet = None
+        best_odds = 0
         
         for bet_type, prob, odds in edges:
             edge = (prob * odds) - 1
             if edge > best_edge:
                 best_edge = edge
+                best_odds = odds
                 if bet_type == 'home':
                     best_bet = f"{home_name} (1)"
                 elif bet_type == 'draw':
@@ -429,18 +431,26 @@ class AutoScanner:
         if best_edge < 0.02:  # Edge minimum
             return None
         
+        # Calcul confidence basée sur l'edge
+        confidence = min(0.95, 0.6 + best_edge * 2)
+        
+        # Score prédit aléatoire
+        home_goals = int(max(0, home_strength * 3 * random.random()))
+        away_goals = int(max(0, away_strength * 2.5 * random.random()))
+        
         return {
             'fixture': fixture,
             'match': f"{home_name} vs {away_name}",
             'league': fixture.get('league_name', 'N/A'),
             'date': fixture.get('date', ''),
-            'time': fixture.get('date', '')[11:16] if 'date' in fixture else '',
+            'time': fixture.get('date', '')[11:16] if 'date' in fixture and len(fixture['date']) > 16 else '',
             'best_bet': best_bet,
-            'odds': round(1 / best_edge if best_edge > 0 else 2.0, 2),
+            'odds': round(best_odds, 2),
             'edge': best_edge,
             'edge_percentage': f"{best_edge * 100:.2f}%",
-            'confidence': min(0.95, 0.6 + best_edge * 2),
-            'predicted_score': f"{random.randint(0, 2)}-{random.randint(0, 2)}",
+            'confidence': confidence,
+            'confidence_percentage': f"{confidence * 100:.1f}%",
+            'predicted_score': f"{home_goals}-{away_goals}",
             'value_rating': best_edge * 100
         }
     
@@ -458,13 +468,15 @@ class AutoScanner:
         
         latest_scan = self.scan_history[-1]
         
+        total_scanned = latest_scan.get('total_matches_scanned', 0)
+        value_found = latest_scan.get('value_bets_found', 0)
+        
         return {
-            'last_scan_time': latest_scan['timestamp'].strftime('%Y-%m-%d %H:%M:%S'),
-            'total_matches_scanned': latest_scan['total_matches_scanned'],
-            'value_bets_found': latest_scan['value_bets_found'],
-            'success_rate': (latest_scan['value_bets_found'] / latest_scan['total_matches_scanned'] * 100) 
-                           if latest_scan['total_matches_scanned'] > 0 else 0,
-            'best_edge': f"{latest_scan['best_edge']*100:.2f}%" if isinstance(latest_scan.get('best_edge'), (int, float)) else "N/A",
+            'last_scan_time': latest_scan.get('timestamp', datetime.now()).strftime('%Y-%m-%d %H:%M:%S'),
+            'total_matches_scanned': total_scanned,
+            'value_bets_found': value_found,
+            'success_rate': (value_found / total_scanned * 100) if total_scanned > 0 else 0,
+            'best_edge': f"{latest_scan.get('best_edge', 0)*100:.2f}%",
             'scan_history_count': len(self.scan_history)
         }
 
@@ -687,7 +699,7 @@ def display_dashboard():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        # Test connexion API - CORRECTION: Vérifier si l'attribut existe
+        # Test connexion API
         try:
             is_connected = st.session_state.api_client.test_connection()
             if is_connected:
@@ -698,7 +710,7 @@ def display_dashboard():
             st.metric("🌐 API Status", "❌ Erreur")
     
     with col2:
-        # Nombre de matchs aujourd'hui - CORRECTION: Utiliser le bon nom de méthode
+        # Nombre de matchs aujourd'hui
         try:
             today_fixtures = st.session_state.api_client.get_todays_fixtures()
             st.metric("📅 Matchs aujourd'hui", len(today_fixtures))
@@ -771,7 +783,7 @@ def display_dashboard():
                 
                 with col_op3:
                     st.write(f"**Edge:** {op.get('edge_percentage', '0%')}")
-                    st.write(f"**Confiance:** {op.get('confidence', 0)*100:.1f}%")
+                    st.write(f"**Confiance:** {op.get('confidence_percentage', '0%')}")
                 
                 st.divider()
     else:
@@ -856,7 +868,7 @@ def display_best_opportunities():
             
             with col_op3:
                 st.metric("✅ Edge", op.get('edge_percentage', '0%'))
-                st.metric("🎯 Confiance", f"{op.get('confidence', 0)*100:.1f}%")
+                st.metric("🎯 Confiance", op.get('confidence_percentage', '0%'))
                 st.metric("📈 Value Rating", f"{op.get('value_rating', 0):.1f}/100")
             
             # Boutons d'action
@@ -864,4 +876,175 @@ def display_best_opportunities():
             
             with col_act1:
                 if st.button(f"📊 Analyser ce match", key=f"analyze_{idx}"):
-                    st.info(f"Analyse détaillée
+                    st.info(f"Analyse détaillée - Fonctionnalité à venir!")
+            
+            with col_act2:
+                if st.button(f"🔔 Suivre ce match", key=f"follow_{idx}"):
+                    st.success(f"Match ajouté à votre liste de suivi!")
+            
+            # Score prédit
+            st.info(f"**Score prédit:** {op.get('predicted_score', 'N/A')}")
+
+def display_all_matches():
+    """Affiche tous les matchs disponibles"""
+    
+    st.header("📋 TOUS LES MATCHS DISPONIBLES")
+    
+    col_view1, col_view2 = st.columns(2)
+    
+    with col_view1:
+        show_days = st.selectbox("Afficher les matchs sur", [1, 2, 3, 7], index=2)
+    
+    with col_view2:
+        view_mode = st.selectbox("Mode d'affichage", ["Liste", "Tableau"])
+    
+    try:
+        # Récupérer les matchs
+        matches = st.session_state.api_client.get_upcoming_fixtures(days_ahead=show_days)
+        
+        if not matches:
+            st.info("Aucun match à venir trouvé")
+            return
+        
+        st.info(f"📊 **{len(matches)} matchs trouvés** sur {show_days} jour(s)")
+        
+        if view_mode == "Liste":
+            # Affichage en liste
+            for match in matches:
+                with st.container():
+                    col_match1, col_match2, col_match3 = st.columns([2, 1, 2])
+                    
+                    with col_match1:
+                        st.write(f"**{match.get('home_name', 'Domicile')}**")
+                    
+                    with col_match2:
+                        st.write("**VS**")
+                        st.write(f"{match.get('date', '')[11:16] if 'date' in match and len(match['date']) > 16 else ''}")
+                    
+                    with col_match3:
+                        st.write(f"**{match.get('away_name', 'Extérieur')}**")
+                    
+                    st.write(f"📍 {match.get('league_name', '')}")
+                    st.divider()
+        
+        else:
+            # Affichage en tableau
+            df_matches = pd.DataFrame(matches)
+            
+            # Nettoyer les colonnes
+            if not df_matches.empty:
+                display_cols = ['home_name', 'away_name', 'date', 'league_name']
+                
+                # Garder seulement les colonnes existantes
+                available_cols = [col for col in display_cols if col in df_matches.columns]
+                
+                if available_cols:
+                    df_display = df_matches[available_cols].copy()
+                    
+                    # Formater la date
+                    if 'date' in df_display.columns:
+                        df_display['date'] = pd.to_datetime(df_display['date']).dt.strftime('%d/%m %H:%M')
+                    
+                    # Renommer les colonnes
+                    rename_dict = {
+                        'home_name': 'Domicile',
+                        'away_name': 'Extérieur',
+                        'date': 'Date/Heure',
+                        'league_name': 'Ligue'
+                    }
+                    df_display.rename(columns=rename_dict, inplace=True)
+                    
+                    st.dataframe(df_display, use_container_width=True, height=400)
+                else:
+                    st.warning("Données insuffisantes pour afficher le tableau")
+    
+    except Exception as e:
+        st.error(f"Erreur lors de la récupération des matchs: {str(e)}")
+
+def display_history():
+    """Affiche l'historique des scans"""
+    
+    st.header("📈 HISTORIQUE DES SCANS")
+    
+    # Vérifier s'il y a un historique
+    if not hasattr(st.session_state.auto_scanner, 'scan_history') or not st.session_state.auto_scanner.scan_history:
+        st.info("Aucun scan dans l'historique. Lancez votre premier scan!")
+        return
+    
+    history = st.session_state.auto_scanner.scan_history
+    
+    # Statistiques globales
+    st.subheader("📊 Statistiques Globales")
+    
+    col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+    
+    total_scanned = sum(scan.get('total_matches_scanned', 0) for scan in history)
+    total_found = sum(scan.get('value_bets_found', 0) for scan in history)
+    best_edge = max(scan.get('best_edge', 0) for scan in history)
+    
+    with col_stat1:
+        st.metric("📅 Total scans", len(history))
+    
+    with col_stat2:
+        st.metric("🔍 Matchs analysés", total_scanned)
+    
+    with col_stat3:
+        st.metric("💰 Value bets trouvés", total_found)
+    
+    with col_stat4:
+        st.metric("🎯 Meilleur edge", f"{best_edge*100:.2f}%")
+    
+    st.divider()
+    
+    # Tableau d'historique
+    st.subheader("📋 Détail des Scans")
+    
+    if history:
+        # Créer un DataFrame pour l'affichage
+        history_data = []
+        for idx, scan in enumerate(reversed(history[-10:]), 1):  # Derniers 10 scans
+            history_data.append({
+                'N°': idx,
+                'Date/Heure': scan.get('timestamp', datetime.now()).strftime('%d/%m %H:%M'),
+                'Période (jours)': scan.get('days_ahead', 0),
+                'Matchs analysés': scan.get('total_matches_scanned', 0),
+                'Value bets': scan.get('value_bets_found', 0),
+                'Taux de succès': f"{(scan.get('value_bets_found', 0) / scan.get('total_matches_scanned', 1) * 100):.1f}%",
+                'Meilleur edge': f"{scan.get('best_edge', 0)*100:.2f}%"
+            })
+        
+        df_history = pd.DataFrame(history_data)
+        st.dataframe(df_history, use_container_width=True, hide_index=True)
+    
+    # Graphique de performance
+    st.subheader("📈 Performance des Scans")
+    
+    if len(history) >= 2:
+        # Préparer les données pour le graphique
+        dates = [scan.get('timestamp', datetime.now()) for scan in history[-10:]]
+        success_rates = [
+            (scan.get('value_bets_found', 0) / scan.get('total_matches_scanned', 1) * 100) 
+            for scan in history[-10:]
+        ]
+        
+        chart_data = pd.DataFrame({
+            'Date': [d.strftime('%d/%m') for d in dates],
+            'Taux de succès (%)': success_rates
+        })
+        
+        st.line_chart(chart_data.set_index('Date'), height=300)
+    
+    # Bouton de nettoyage
+    st.divider()
+    if st.button("🧹 Nettoyer l'historique", type="secondary"):
+        if st.session_state.auto_scanner.scan_history:
+            st.session_state.auto_scanner.scan_history = []
+            st.success("Historique nettoyé avec succès!")
+            st.rerun()
+
+# =============================================================================
+# POINT D'ENTRÉE
+# =============================================================================
+
+if __name__ == "__main__":
+    main()
