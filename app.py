@@ -5,6 +5,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
+import math  # Import ajouté pour math.factorial
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional
 import random
@@ -174,7 +175,7 @@ class AutoAnalyzer:
                         return analysis
             
         except Exception as e:
-            st.warning(f"Données simulées pour {team_name}: {str(e)}")
+            st.warning(f"Données simulées pour {team_name}")
         
         # Retourner les données par défaut
         self.team_cache[team_name] = default_stats
@@ -370,14 +371,23 @@ class PredictionSystem:
         for h in range(5):
             for a in range(5):
                 # Probabilité simplifiée (Poisson)
-                home_prob = (home_exp ** h) * np.exp(-home_exp) / np.math.factorial(h) if h < 3 else 0.01
-                away_prob = (away_exp ** a) * np.exp(-away_exp) / np.math.factorial(a) if a < 3 else 0.01
-                prob = home_prob * away_prob
-                scores.append((f"{h}-{a}", prob))
+                # CORRECTION: Utiliser math.factorial() au lieu de np.math.factorial()
+                try:
+                    home_fact = math.factorial(h) if h >= 0 else 1
+                    away_fact = math.factorial(a) if a >= 0 else 1
+                    
+                    home_prob = (home_exp ** h) * np.exp(-home_exp) / home_fact if h < 3 else 0.01
+                    away_prob = (away_exp ** a) * np.exp(-away_exp) / away_fact if a < 3 else 0.01
+                    prob = home_prob * away_prob
+                    scores.append((f"{h}-{a}", prob))
+                except:
+                    # Fallback si erreur de calcul
+                    prob = 0.01
+                    scores.append((f"{h}-{a}", prob))
         
         # Retourner le score avec la plus haute probabilité
         scores.sort(key=lambda x: x[1], reverse=True)
-        return scores[0][0]
+        return scores[0][0] if scores else "1-0"
     
     def calculate_value_bets(self, prediction: Dict) -> List[Dict]:
         """Calcule les value bets automatiquement"""
@@ -481,6 +491,15 @@ def setup_interface():
         margin: 10px 0;
         border: 1px solid #ffb74d;
     }
+    .stButton>button {
+        background: linear-gradient(90deg, #1E88E5, #0D47A1);
+        color: white;
+        font-weight: bold;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-size: 1.1rem;
+    }
     </style>
     """, unsafe_allow_html=True)
     
@@ -557,176 +576,181 @@ def main():
         else:
             with st.spinner(f"🔍 Analyse en cours de {home_team} vs {away_team}..."):
                 
-                # 1. ANALYSE DES ÉQUIPES
-                st.subheader("📊 ANALYSE DES ÉQUIPES")
-                
-                col3, col4 = st.columns(2)
-                
-                with col3:
-                    home_analysis = st.session_state.analyzer.analyze_team(home_team, st.session_state.api_client)
-                    display_team_analysis(home_team, home_analysis, "🏠")
-                
-                with col4:
-                    away_analysis = st.session_state.analyzer.analyze_team(away_team, st.session_state.api_client)
-                    display_team_analysis(away_team, away_analysis, "⚽")
-                
-                # 2. PRÉDICTIONS
-                st.subheader("🎯 PRÉDICTIONS DU MATCH")
-                
-                prediction = st.session_state.predictor.predict_match(home_analysis, away_analysis)
-                
-                # Affichage des probabilités
-                col5, col6, col7 = st.columns(3)
-                
-                with col5:
-                    st.markdown(f"""
-                    <div class="prediction-card">
-                        <h3>🏠 {home_team}</h3>
-                        <h1 style="font-size: 3rem;">{prediction['home_win_prob']*100:.1f}%</h1>
-                        <p>Cote: {1/prediction['home_win_prob']:.2f}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with col6:
-                    st.markdown(f"""
-                    <div class="prediction-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                        <h3>🤝 MATCH NUL</h3>
-                        <h1 style="font-size: 3rem;">{prediction['draw_prob']*100:.1f}%</h1>
-                        <p>Cote: {1/prediction['draw_prob']:.2f}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with col7:
-                    st.markdown(f"""
-                    <div class="prediction-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
-                        <h3>⚽ {away_team}</h3>
-                        <h1 style="font-size: 3rem;">{prediction['away_win_prob']*100:.1f}%</h1>
-                        <p>Cote: {1/prediction['away_win_prob']:.2f}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                # Score prédit
-                st.subheader("📊 SCORE PRÉDIT")
-                
-                col8, col9 = st.columns([2, 1])
-                
-                with col8:
-                    st.markdown(f"""
-                    <div style="background: linear-gradient(135deg, #FF6B6B 0%, #4ECDC4 100%); 
-                    padding: 30px; border-radius: 15px; text-align: center; color: white;">
-                    <h1 style="font-size: 4rem; margin: 0;">{prediction['predicted_score']}</h1>
-                    <p style="font-size: 1.2rem;">Score le plus probable</p>
-                    <p>Buts attendus: {prediction['expected_home_goals']:.2f} - {prediction['expected_away_goals']:.2f}</p>
-                    <p>Confiance: {prediction['confidence']*100:.1f}%</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with col9:
-                    st.markdown("""
-                    <div class="analysis-card">
-                        <h4>📈 Détails de prédiction:</h4>
-                        <p>• Score le plus probable: **{}**</p>
-                        <p>• Buts attendus domicile: **{:.2f}**</p>
-                        <p>• Buts attendus extérieur: **{:.2f}**</p>
-                        <p>• Rating domicile: **{:.0f}**</p>
-                        <p>• Rating extérieur: **{:.0f}**</p>
-                    </div>
-                    """.format(
-                        prediction['most_likely_score'],
-                        prediction['expected_home_goals'],
-                        prediction['expected_away_goals'],
-                        prediction['home_rating'],
-                        prediction['away_rating']
-                    ), unsafe_allow_html=True)
-                
-                # 3. VALUE BETS
-                st.subheader("💰 VALUE BETS DÉTECTÉS")
-                
-                value_bets = st.session_state.predictor.calculate_value_bets(prediction)
-                
-                if value_bets:
-                    st.success(f"✅ {len(value_bets)} opportunité(s) de value bet détectée(s)")
+                try:
+                    # 1. ANALYSE DES ÉQUIPES
+                    st.subheader("📊 ANALYSE DES ÉQUIPES")
                     
-                    for bet in value_bets:
-                        with st.expander(f"🎯 {bet['market']} - Edge: {bet['edge']*100:.2f}%", expanded=True):
-                            col10, col11, col12 = st.columns(3)
-                            
-                            with col10:
-                                st.metric("Cote estimée", f"{bet['odds']:.2f}")
-                            
-                            with col11:
-                                st.metric("Probabilité", f"{bet['probability']*100:.1f}%")
-                            
-                            with col12:
-                                st.metric("Edge", f"{bet['edge']*100:.2f}%")
-                            
-                            # Recommandation
-                            if bet['edge'] > 0.05:
-                                st.success(f"**✅ RECOMMANDATION FORTE** - Edge significatif de {bet['edge']*100:.2f}%")
-                            elif bet['edge'] > 0.02:
-                                st.info(f"**⚠️ RECOMMANDATION MODÉRÉE** - Edge de {bet['edge']*100:.2f}%")
-                            
-                            # Explication
-                            st.markdown(f"""
-                            <div class="analysis-card">
-                                <h5>📖 Explication:</h5>
-                                <p>• Notre modèle prédit une probabilité de **{bet['probability']*100:.1f}%**</p>
-                                <p>• La cote du marché devrait être de **{1/bet['probability']:.2f}**</p>
-                                <p>• La cote estimée est de **{bet['odds']:.2f}**</p>
-                                <p>• Cela représente un avantage (edge) de **{bet['edge']*100:.2f}%**</p>
-                                <p>• **Value Score:** {bet['value_score']:.2f}/100</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-                else:
-                    st.warning("""
-                    ⚠️ Aucun value bet significatif détecté
+                    col3, col4 = st.columns(2)
                     
-                    **Raisons possibles:**
-                    • Les cotes du marché sont bien alignées avec nos prédictions
-                    • Match trop incertain pour dégager un edge
-                    • Considérez d'autres marchés (BTTS, Over/Under)
-                    """)
-                
-                # 4. RECOMMANDATIONS FINALES
-                st.subheader("📋 RECOMMANDATIONS FINALES")
-                
-                col13, col14 = st.columns(2)
-                
-                with col13:
+                    with col3:
+                        home_analysis = st.session_state.analyzer.analyze_team(home_team, st.session_state.api_client)
+                        display_team_analysis(home_team, home_analysis, "🏠")
+                    
+                    with col4:
+                        away_analysis = st.session_state.analyzer.analyze_team(away_team, st.session_state.api_client)
+                        display_team_analysis(away_team, away_analysis, "⚽")
+                    
+                    # 2. PRÉDICTIONS
+                    st.subheader("🎯 PRÉDICTIONS DU MATCH")
+                    
+                    prediction = st.session_state.predictor.predict_match(home_analysis, away_analysis)
+                    
+                    # Affichage des probabilités
+                    col5, col6, col7 = st.columns(3)
+                    
+                    with col5:
+                        st.markdown(f"""
+                        <div class="prediction-card">
+                            <h3>🏠 {home_team}</h3>
+                            <h1 style="font-size: 3rem;">{prediction['home_win_prob']*100:.1f}%</h1>
+                            <p>Cote: {1/prediction['home_win_prob']:.2f}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col6:
+                        st.markdown(f"""
+                        <div class="prediction-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                            <h3>🤝 MATCH NUL</h3>
+                            <h1 style="font-size: 3rem;">{prediction['draw_prob']*100:.1f}%</h1>
+                            <p>Cote: {1/prediction['draw_prob']:.2f}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col7:
+                        st.markdown(f"""
+                        <div class="prediction-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                            <h3>⚽ {away_team}</h3>
+                            <h1 style="font-size: 3rem;">{prediction['away_win_prob']*100:.1f}%</h1>
+                            <p>Cote: {1/prediction['away_win_prob']:.2f}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Score prédit
+                    st.subheader("📊 SCORE PRÉDIT")
+                    
+                    col8, col9 = st.columns([2, 1])
+                    
+                    with col8:
+                        st.markdown(f"""
+                        <div style="background: linear-gradient(135deg, #FF6B6B 0%, #4ECDC4 100%); 
+                        padding: 30px; border-radius: 15px; text-align: center; color: white;">
+                        <h1 style="font-size: 4rem; margin: 0;">{prediction['predicted_score']}</h1>
+                        <p style="font-size: 1.2rem;">Score le plus probable</p>
+                        <p>Buts attendus: {prediction['expected_home_goals']:.2f} - {prediction['expected_away_goals']:.2f}</p>
+                        <p>Confiance: {prediction['confidence']*100:.1f}%</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col9:
+                        st.markdown("""
+                        <div class="analysis-card">
+                            <h4>📈 Détails de prédiction:</h4>
+                            <p>• Score le plus probable: **{}**</p>
+                            <p>• Buts attendus domicile: **{:.2f}**</p>
+                            <p>• Buts attendus extérieur: **{:.2f}**</p>
+                            <p>• Rating domicile: **{:.0f}**</p>
+                            <p>• Rating extérieur: **{:.0f}**</p>
+                        </div>
+                        """.format(
+                            prediction['most_likely_score'],
+                            prediction['expected_home_goals'],
+                            prediction['expected_away_goals'],
+                            prediction['home_rating'],
+                            prediction['away_rating']
+                        ), unsafe_allow_html=True)
+                    
+                    # 3. VALUE BETS
+                    st.subheader("💰 VALUE BETS DÉTECTÉS")
+                    
+                    value_bets = st.session_state.predictor.calculate_value_bets(prediction)
+                    
+                    if value_bets:
+                        st.success(f"✅ {len(value_bets)} opportunité(s) de value bet détectée(s)")
+                        
+                        for bet in value_bets:
+                            with st.expander(f"🎯 {bet['market']} - Edge: {bet['edge']*100:.2f}%", expanded=True):
+                                col10, col11, col12 = st.columns(3)
+                                
+                                with col10:
+                                    st.metric("Cote estimée", f"{bet['odds']:.2f}")
+                                
+                                with col11:
+                                    st.metric("Probabilité", f"{bet['probability']*100:.1f}%")
+                                
+                                with col12:
+                                    st.metric("Edge", f"{bet['edge']*100:.2f}%")
+                                
+                                # Recommandation
+                                if bet['edge'] > 0.05:
+                                    st.success(f"**✅ RECOMMANDATION FORTE** - Edge significatif de {bet['edge']*100:.2f}%")
+                                elif bet['edge'] > 0.02:
+                                    st.info(f"**⚠️ RECOMMANDATION MODÉRÉE** - Edge de {bet['edge']*100:.2f}%")
+                                
+                                # Explication
+                                st.markdown(f"""
+                                <div class="analysis-card">
+                                    <h5>📖 Explication:</h5>
+                                    <p>• Notre modèle prédit une probabilité de **{bet['probability']*100:.1f}%**</p>
+                                    <p>• La cote du marché devrait être de **{1/bet['probability']:.2f}**</p>
+                                    <p>• La cote estimée est de **{bet['odds']:.2f}**</p>
+                                    <p>• Cela représente un avantage (edge) de **{bet['edge']*100:.2f}%**</p>
+                                    <p>• **Value Score:** {bet['value_score']:.2f}/100</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                    else:
+                        st.warning("""
+                        ⚠️ Aucun value bet significatif détecté
+                        
+                        **Raisons possibles:**
+                        • Les cotes du marché sont bien alignées avec nos prédictions
+                        • Match trop incertain pour dégager un edge
+                        • Considérez d'autres marchés (BTTS, Over/Under)
+                        """)
+                    
+                    # 4. RECOMMANDATIONS FINALES
+                    st.subheader("📋 RECOMMANDATIONS FINALES")
+                    
+                    col13, col14 = st.columns(2)
+                    
+                    with col13:
+                        st.markdown(f"""
+                        <div class="analysis-card">
+                            <h4>✅ POUR {home_team}:</h4>
+                            <p>• Forme: {home_analysis['form']:.1f}/10</p>
+                            <p>• Attaque: {home_analysis['attack']:.2f} buts/match</p>
+                            <p>• Défense: {home_analysis['defense']:.2f} buts/match</p>
+                            <p>• Force domicile: {home_analysis['home_strength']*100:.1f}%</p>
+                            <p>• Derniers résultats: {' '.join(home_analysis['last_5_results'])}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col14:
+                        st.markdown(f"""
+                        <div class="analysis-card">
+                            <h4>✅ POUR {away_team}:</h4>
+                            <p>• Forme: {away_analysis['form']:.1f}/10</p>
+                            <p>• Attaque: {away_analysis['attack']:.2f} buts/match</p>
+                            <p>• Défense: {away_analysis['defense']:.2f} buts/match</p>
+                            <p>• Force extérieur: {away_analysis['away_strength']*100:.1f}%</p>
+                            <p>• Derniers résultats: {' '.join(away_analysis['last_5_results'])}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Résumé
                     st.markdown(f"""
-                    <div class="analysis-card">
-                        <h4>✅ POUR {home_team}:</h4>
-                        <p>• Forme: {home_analysis['form']:.1f}/10</p>
-                        <p>• Attaque: {home_analysis['attack']:.2f} buts/match</p>
-                        <p>• Défense: {home_analysis['defense']:.2f} buts/match</p>
-                        <p>• Force domicile: {home_analysis['home_strength']*100:.1f}%</p>
-                        <p>• Derniers résultats: {' '.join(home_analysis['last_5_results'])}</p>
+                    <div style="background: #e8f5e9; padding: 20px; border-radius: 10px; border-left: 5px solid #4CAF50;">
+                    <h4>🎯 RÉSUMÉ DE L'ANALYSE</h4>
+                    <p><strong>Match:</strong> {home_team} vs {away_team}</p>
+                    <p><strong>Prédiction principale:</strong> {prediction['predicted_score']}</p>
+                    <p><strong>Confiance du modèle:</strong> {prediction['confidence']*100:.1f}%</p>
+                    <p><strong>Meilleure opportunité:</strong> {value_bets[0]['market'] if value_bets else 'Aucune'}</p>
+                    <p><strong>Recommandation:</strong> {'✅ Paris recommandés' if value_bets else '⚠️ Attendre de meilleures opportunités'}</p>
                     </div>
                     """, unsafe_allow_html=True)
                 
-                with col14:
-                    st.markdown(f"""
-                    <div class="analysis-card">
-                        <h4>✅ POUR {away_team}:</h4>
-                        <p>• Forme: {away_analysis['form']:.1f}/10</p>
-                        <p>• Attaque: {away_analysis['attack']:.2f} buts/match</p>
-                        <p>• Défense: {away_analysis['defense']:.2f} buts/match</p>
-                        <p>• Force extérieur: {away_analysis['away_strength']*100:.1f}%</p>
-                        <p>• Derniers résultats: {' '.join(away_analysis['last_5_results'])}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                # Résumé
-                st.markdown(f"""
-                <div style="background: #e8f5e9; padding: 20px; border-radius: 10px; border-left: 5px solid #4CAF50;">
-                <h4>🎯 RÉSUMÉ DE L'ANALYSE</h4>
-                <p><strong>Match:</strong> {home_team} vs {away_team}</p>
-                <p><strong>Prédiction principale:</strong> {prediction['predicted_score']}</p>
-                <p><strong>Confiance du modèle:</strong> {prediction['confidence']*100:.1f}%</p>
-                <p><strong>Meilleure opportunité:</strong> {value_bets[0]['market'] if value_bets else 'Aucune'}</p>
-                <p><strong>Recommandation:</strong> {'✅ Paris recommandés' if value_bets else '⚠️ Attendre de meilleures opportunités'}</p>
-                </div>
-                """, unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"❌ Une erreur est survenue lors de l'analyse: {str(e)}")
+                    st.info("Veuillez réessayer avec d'autres noms d'équipes.")
     
     # Section d'information
     st.divider()
