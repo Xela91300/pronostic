@@ -1,5 +1,5 @@
 def display_match_analysis_manual():
-    """Analyse manuelle d'un match - Version simplifiée et fonctionnelle"""
+    """Analyse manuelle d'un match - Version sans Plotly"""
     st.header("🔍 ANALYSE DE MATCH MANUELLE")
     
     st.info("Entrez les détails d'un match pour obtenir une analyse détaillée avec prédictions et recommandations de paris.")
@@ -60,26 +60,29 @@ def display_match_analysis_manual():
             with col5:
                 st.metric(f"🏠 {home_team}", f"{home_rating:.0f}")
                 
-                # Graphique barres pour domicile
-                fig_home = go.Figure(data=[
-                    go.Bar(x=['Forme', 'Attaque', 'Défense'], 
-                          y=[home_form*10, home_attack*50, (5-home_defense)*50],
-                          marker_color='#1E88E5')
-                ])
-                fig_home.update_layout(title=f"Profil - {home_team}", height=300)
-                st.plotly_chart(fig_home, use_container_width=True)
+                # Graphique simple avec barres natives Streamlit
+                st.write("**Profil de l'équipe:**")
+                st.write(f"• Forme: {home_form}/10")
+                st.write(f"• Attaque: {home_attack} buts/moy")
+                st.write(f"• Défense: {home_defense} buts/moy")
+                
+                # Barres de progression
+                st.progress(home_form / 10, text="Forme")
+                st.progress(min(home_attack / 3, 1.0), text="Attaque")
+                st.progress(max(0, 1 - home_defense / 3), text="Défense")
             
             with col6:
                 st.metric(f"⚽ {away_team}", f"{away_rating:.0f}")
                 
-                # Graphique barres pour extérieur
-                fig_away = go.Figure(data=[
-                    go.Bar(x=['Forme', 'Attaque', 'Défense'], 
-                          y=[away_form*10, away_attack*50, (5-away_defense)*50],
-                          marker_color='#FF6B6B')
-                ])
-                fig_away.update_layout(title=f"Profil - {away_team}", height=300)
-                st.plotly_chart(fig_away, use_container_width=True)
+                st.write("**Profil de l'équipe:**")
+                st.write(f"• Forme: {away_form}/10")
+                st.write(f"• Attaque: {away_attack} buts/moy")
+                st.write(f"• Défense: {away_defense} buts/moy")
+                
+                # Barres de progression
+                st.progress(away_form / 10, text="Forme")
+                st.progress(min(away_attack / 3, 1.0), text="Attaque")
+                st.progress(max(0, 1 - away_defense / 3), text="Défense")
             
             # 2. PRÉDICTIONS
             st.subheader("🎯 PRÉDICTIONS DU MATCH")
@@ -236,6 +239,7 @@ def display_match_analysis_manual():
                                         
                                         if result['success']:
                                             st.success(f"✅ Pari placé: €{stake:.2f}")
+                                            st.rerun()
                                         else:
                                             st.error(f"❌ Erreur: {result.get('error')}")
                             except:
