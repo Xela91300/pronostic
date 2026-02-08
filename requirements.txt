@@ -7,3 +7,4 @@ xgboost>=1.7.0
 beautifulsoup4
 fake-useragent
 pytz
+feedparser
