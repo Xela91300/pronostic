@@ -748,6 +748,21 @@ def main():
         text-align: center;
         margin: 10px 0;
     }
+    .prediction-card {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-radius: 10px;
+        padding: 20px;
+        margin: 10px 0;
+        border-left: 4px solid #28a745;
+    }
+    .stat-card {
+        background: white;
+        border-radius: 10px;
+        padding: 15px;
+        margin: 5px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        text-align: center;
+    }
     </style>
     """, unsafe_allow_html=True)
     
@@ -803,7 +818,7 @@ def main():
         auto_refresh = st.checkbox("Actualisation auto", value=True)
         if auto_refresh:
             refresh_rate = st.select_slider(
-                "Fréquence",
+                "Fréquence (secondes)",
                 options=[10, 30, 60, 120],
                 value=30
             )
@@ -845,4 +860,168 @@ def main():
                         st.session_state.live_count = live_count
                         
                         if predictions:
-                            st.success(f"✅ {len(predictions)} matchs
+                            st.success(f"✅ {len(predictions)} matchs analysés ({live_count} en direct)")
+                        else:
+                            st.warning("⚠️ Aucun match correspondant aux critères")
+                    else:
+                        st.error("❌ Impossible de récupérer les matchs")
+        
+        with col2:
+            if st.button("🔄 RAFRAÎCHIR", use_container_width=True):
+                st.rerun()
+        
+        st.divider()
+        st.markdown("## 📊 STATISTIQUES")
+        
+        if 'predictions' in st.session_state:
+            preds = st.session_state.predictions
+            if preds:
+                st.metric("Total matchs", len(preds))
+                live_matches = len([p for p in preds if p.get('is_live')])
+                st.metric("En direct", live_matches)
+                avg_confidence = sum(p['confidence'] for p in preds) / len(preds)
+                st.metric("Confiance moyenne", f"{avg_confidence:.1f}%")
+        
+        st.markdown("---")
+        st.markdown("### ⚠️ DISCLAIMER")
+        st.caption("""
+        Les prédictions sont générées automatiquement.
+        Elles ne garantissent pas les résultats.
+        Les paris sportifs comportent des risques.
+        """)
+    
+    # Contenu principal
+    if 'predictions' in st.session_state and st.session_state.predictions:
+        predictions = st.session_state.predictions
+        
+        # Informations
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Matchs trouvés", len(predictions))
+        with col2:
+            st.metric("En direct", st.session_state.get('live_count', 0))
+        with col3:
+            if st.session_state.last_update:
+                st.metric("Dernière mise à jour", st.session_state.last_update.strftime("%H:%M:%S"))
+        
+        st.divider()
+        
+        # Affichage des matchs
+        for pred in predictions:
+            is_live = pred.get('is_live', False)
+            
+            if is_live:
+                st.markdown(f'<div class="match-card-live">', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div class="match-card-other">', unsafe_allow_html=True)
+            
+            # Header avec statut
+            col1, col2, col3 = st.columns([2, 1, 2])
+            
+            with col1:
+                st.markdown(f"**{pred['match']}**")
+                st.caption(f"{pred['league']} • {pred['date']} {pred['time']}")
+            
+            with col2:
+                if is_live:
+                    st.markdown(f'<div class="score-display">{pred.get("current_score", "0-0")}</div>', unsafe_allow_html=True)
+                    if pred.get('minute'):
+                        st.markdown(f"**{pred['minute']}**")
+            
+            with col3:
+                status_badge = "🔴 LIVE" if is_live else "⏳ À VENIR"
+                st.markdown(f"**{status_badge}**")
+                st.markdown(f"Confiance: **{pred['confidence']}%**")
+            
+            # Prédictions
+            st.markdown("---")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.markdown('<div class="stat-card">', unsafe_allow_html=True)
+                st.markdown("**🏆 PRONOSTIC**")
+                st.markdown(f"### {pred['main_prediction']}")
+                st.markdown(f"*{pred['prediction_type']}*")
+                st.markdown("</div>", unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown('<div class="stat-card">', unsafe_allow_html=True)
+                st.markdown("**⚽ SCORE**")
+                st.markdown(f"### {pred['score_prediction']}")
+                st.markdown(f"*{pred['over_under']}*")
+                st.markdown("</div>", unsafe_allow_html=True)
+            
+            with col3:
+                st.markdown('<div class="stat-card">', unsafe_allow_html=True)
+                st.markdown("**🎯 BTTS**")
+                st.markdown(f"### {pred['btts']}")
+                st.markdown(f"*{pred['btts_prob']}%*")
+                st.markdown("</div>", unsafe_allow_html=True)
+            
+            with col4:
+                st.markdown('<div class="stat-card">', unsafe_allow_html=True)
+                st.markdown("**💰 COTES**")
+                st.markdown(f"**1**: {pred['odds']['home']:.2f}")
+                st.markdown(f"**X**: {pred['odds']['draw']:.2f}")
+                st.markdown(f"**2**: {pred['odds']['away']:.2f}")
+                st.markdown("</div>", unsafe_allow_html=True)
+            
+            # Graphique des probabilités
+            st.markdown("---")
+            col1, col2 = st.columns([1, 2])
+            
+            with col1:
+                # Affichage simple des probabilités
+                st.markdown("**📊 Probabilités**")
+                probs = pred['probabilities']
+                
+                st.metric(f"Victoire {pred['match'].split(' vs ')[0]}", f"{probs['home_win']}%")
+                st.metric("Match nul", f"{probs['draw']}%")
+                st.metric(f"Victoire {pred['match'].split(' vs ')[1]}", f"{probs['away_win']}%")
+            
+            with col2:
+                # Analyse textuelle
+                st.markdown(pred['analysis'])
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+    
+    else:
+        # Écran d'accueil
+        st.markdown("""
+        ## 🎯 Bienvenue dans le Système de Pronostics Live
+        
+        ### Fonctionnalités :
+        - 🔴 **Matchs en direct** via API SofaScore
+        - 📊 **Analyse statistique** avancée
+        - ⚽ **Prédictions** score et résultat
+        - 💰 **Cotes estimées**
+        - 🎯 **Probabilités** calculées en temps réel
+        
+        ### Comment utiliser :
+        1. ⚙️ **Configurez** les filtres dans la sidebar
+        2. 🔍 **Cliquez sur CHERCHER** pour lancer l'analyse
+        3. 📈 **Consultez** les prédictions détaillées
+        4. 🔄 **Actualisez** pour les matchs en direct
+        
+        ### Ligues supportées :
+        - Ligue 1 (France)
+        - Premier League (Angleterre)
+        - La Liga (Espagne)
+        - Bundesliga (Allemagne)
+        - Serie A (Italie)
+        - Champions League
+        
+        ---
+        
+        *⚠️ Note : Les données en direct dépendent de la disponibilité de l'API SofaScore*
+        """)
+    
+    # Auto-refresh
+    if 'auto_refresh' in locals() and auto_refresh:
+        time.sleep(refresh_rate)
+        st.rerun()
+
+if __name__ == "__main__":
+    main()
