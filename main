@@ -1,0 +1,15 @@
+# Trouvez cette section dans main() et modifiez-la :
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "🏠 Dashboard", 
+    "🎯 Value Bets", 
+    "⚽ Matchs en Direct", 
+    "💰 Paris", 
+    "📈 Performances",
+    "🔍 Analyse Match"  # Nouvel onglet
+])
+
+# ... gardez les autres onglets existants ...
+
+# Ajoutez ceci à la fin de la section des onglets :
+with tab6:
+    display_match_analysis_manual()
