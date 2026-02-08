@@ -30,6 +30,17 @@ class SofaScoreAPIClient:
         }
         self.cache = {}
         self.cache_timeout = 30  # 30 secondes pour le cache
+        self.sports = self._get_sports()
+    
+    def _get_sports(self):
+        """Récupère les IDs des sports"""
+        try:
+            response = requests.get(f"{self.base_url}/sports", headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            return {}
+        except:
+            return {}
     
     def get_live_matches(self) -> List[Dict]:
         """Récupère les matchs en direct via l'API"""
@@ -42,7 +53,7 @@ class SofaScoreAPIClient:
                 return cached_data
         
         try:
-            # Endpoint pour les matchs en direct
+            # Endpoint pour les matchs en direct de football
             url = f"{self.base_url}/sport/football/events/live"
             
             st.info("🔴 Connexion à l'API SofaScore pour les matchs en direct...")
@@ -54,7 +65,7 @@ class SofaScoreAPIClient:
                 events = data.get('events', [])
                 
                 fixtures = []
-                for event in events[:15]:  # Limiter à 15 matchs
+                for event in events[:20]:  # Limiter à 20 matchs
                     try:
                         fixture = self._parse_event(event, True)
                         if fixture:
@@ -65,12 +76,9 @@ class SofaScoreAPIClient:
                 if fixtures:
                     self.cache[cache_key] = (time.time(), fixtures)
                     return fixtures
-                else:
-                    # Essayer les matchs d'aujourd'hui si pas de live
-                    return self.get_todays_matches()
                     
         except Exception as e:
-            st.warning(f"⚠️ Erreur API: {str(e)[:100]}")
+            st.warning(f"⚠️ Erreur API live: {str(e)[:100]}")
         
         # Fallback
         return self._get_live_fallback()
@@ -86,32 +94,51 @@ class SofaScoreAPIClient:
         
         try:
             today = date.today()
-            formatted_date = today.strftime('%Y-%m-%d')
-            url = f"{self.base_url}/sport/football/scheduled-events/{formatted_date}"
             
-            response = requests.get(url, headers=self.headers, timeout=10)
+            # Essayer plusieurs endpoints
+            endpoints = [
+                f"{self.base_url}/sport/football/events/{today.strftime('%Y-%m-%d')}",
+                f"{self.base_url}/sport/football/events/live",
+                f"{self.base_url}/sport/football/events"
+            ]
             
-            if response.status_code == 200:
-                data = response.json()
-                events = data.get('events', [])
-                
-                fixtures = []
-                for event in events[:20]:  # Limiter à 20 matchs
-                    try:
-                        fixture = self._parse_event(event, False)
-                        if fixture:
-                            fixtures.append(fixture)
-                    except:
-                        continue
-                
-                if fixtures:
-                    self.cache[cache_key] = (time.time(), fixtures)
-                    return fixtures
+            fixtures = []
+            
+            for url in endpoints:
+                try:
+                    response = requests.get(url, headers=self.headers, timeout=10)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        events = data.get('events', [])
+                        
+                        for event in events[:25]:  # Limiter à 25 matchs
+                            try:
+                                # Vérifier si le match est aujourd'hui
+                                start_timestamp = event.get('startTimestamp')
+                                if start_timestamp:
+                                    event_date = datetime.fromtimestamp(start_timestamp).date()
+                                    if event_date == today:
+                                        fixture = self._parse_event(event, False)
+                                        if fixture:
+                                            fixtures.append(fixture)
+                            except:
+                                continue
+                        
+                        if fixtures:
+                            break
+                except:
+                    continue
+            
+            if fixtures:
+                self.cache[cache_key] = (time.time(), fixtures)
+                return fixtures
                     
         except Exception as e:
             st.warning(f"⚠️ Erreur API aujourd'hui: {str(e)[:100]}")
         
-        return self._get_fallback_matches()
+        # Fallback avec des matchs réalistes
+        return self._get_realistic_matches()
     
     def _parse_event(self, event_data: Dict, is_live: bool) -> Optional[Dict]:
         """Parse un événement de l'API"""
@@ -124,12 +151,18 @@ class SofaScoreAPIClient:
             away_team = event_data.get('awayTeam', {}).get('name', '')
             
             if not home_team or not away_team:
+                # Essayer avec slug
+                home_team = event_data.get('homeTeam', {}).get('slug', '').replace('-', ' ').title()
+                away_team = event_data.get('awayTeam', {}).get('slug', '').replace('-', ' ').title()
+            
+            if not home_team or not away_team:
                 return None
             
             # Compétition
             tournament = event_data.get('tournament', {})
             league_name = tournament.get('name', '')
-            league_id = tournament.get('id')
+            if not league_name:
+                league_name = tournament.get('slug', '').replace('-', ' ').title()
             
             # Date et heure
             start_timestamp = event_data.get('startTimestamp')
@@ -137,9 +170,12 @@ class SofaScoreAPIClient:
                 dt = datetime.fromtimestamp(start_timestamp)
                 date_str = dt.strftime('%Y-%m-%d')
                 time_str = dt.strftime('%H:%M')
+                weekday = dt.strftime('%A')
             else:
-                date_str = date.today().strftime('%Y-%m-%d')
+                today = date.today()
+                date_str = today.strftime('%Y-%m-%d')
                 time_str = "20:00"
+                weekday = today.strftime('%A')
             
             # Statut
             status = event_data.get('status', {}).get('type', '')
@@ -175,10 +211,10 @@ class SofaScoreAPIClient:
                 'fixture_id': event_id,
                 'date': date_str,
                 'time': time_str,
+                'weekday': weekday,
                 'home_name': home_team,
                 'away_name': away_team,
                 'league_name': league_name,
-                'league_id': league_id,
                 'league_country': self._guess_country(league_name),
                 'status': match_status,
                 'timestamp': start_timestamp or int(time.time()),
@@ -202,27 +238,87 @@ class SofaScoreAPIClient:
         
         league_lower = league.lower()
         
-        if any(word in league_lower for word in ['premier', 'england', 'english']):
+        if any(word in league_lower for word in ['premier', 'england', 'english', 'efl', 'fa cup']):
             return 'Angleterre'
-        elif any(word in league_lower for word in ['ligue', 'france', 'french']):
+        elif any(word in league_lower for word in ['ligue', 'france', 'french', 'coupe de france']):
             return 'France'
-        elif any(word in league_lower for word in ['laliga', 'spain', 'spanish']):
+        elif any(word in league_lower for word in ['laliga', 'spain', 'spanish', 'la liga', 'copa del rey']):
             return 'Espagne'
-        elif any(word in league_lower for word in ['bundesliga', 'germany', 'german']):
+        elif any(word in league_lower for word in ['bundesliga', 'germany', 'german', 'dfb']):
             return 'Allemagne'
-        elif any(word in league_lower for word in ['serie', 'italy', 'italian']):
+        elif any(word in league_lower for word in ['serie', 'italy', 'italian', 'coppa italia']):
             return 'Italie'
-        elif any(word in league_lower for word in ['champions', 'europa']):
+        elif any(word in league_lower for word in ['champions', 'europa', 'conference', 'uefa']):
             return 'Europe'
+        elif any(word in league_lower for word in ['eredivisie', 'netherlands', 'dutch']):
+            return 'Pays-Bas'
+        elif any(word in league_lower for word in ['primeira liga', 'portugal', 'portuguese']):
+            return 'Portugal'
         else:
             return 'International'
+    
+    def _get_realistic_matches(self) -> List[Dict]:
+        """Retourne des matchs réalistes pour aujourd'hui"""
+        today = date.today()
+        weekday = today.strftime('%A')
+        
+        # Matchs selon le jour de la semaine
+        if weekday in ['Saturday', 'Sunday']:
+            # Week-end - beaucoup de matchs
+            matches = [
+                ('Paris Saint-Germain', 'AS Monaco', 'Ligue 1', '21:00'),
+                ('Real Madrid', 'Barcelona', 'La Liga', '20:00'),
+                ('Manchester City', 'Liverpool', 'Premier League', '18:30'),
+                ('Bayern Munich', 'Borussia Dortmund', 'Bundesliga', '17:30'),
+                ('Inter Milan', 'AC Milan', 'Serie A', '20:45'),
+                ('Arsenal', 'Chelsea', 'Premier League', '16:00'),
+                ('Atlético Madrid', 'Sevilla', 'La Liga', '19:00'),
+                ('Juventus', 'AS Roma', 'Serie A', '18:00'),
+                ('Tottenham', 'Manchester United', 'Premier League', '15:00'),
+                ('Bayer Leverkusen', 'RB Leipzig', 'Bundesliga', '15:30'),
+                ('Marseille', 'Lyon', 'Ligue 1', '17:00'),
+                ('Napoli', 'Lazio', 'Serie A', '15:00'),
+            ]
+        else:
+            # Jour de semaine - matchs européens
+            matches = [
+                ('Paris Saint-Germain', 'AS Monaco', 'Ligue 1', '21:00'),
+                ('Real Madrid', 'Barcelona', 'La Liga', '20:00'),
+                ('Manchester City', 'Liverpool', 'Premier League', '20:00'),
+                ('Bayern Munich', 'Borussia Dortmund', 'Bundesliga', '20:30'),
+                ('Inter Milan', 'AC Milan', 'Serie A', '20:45'),
+                ('Arsenal', 'Chelsea', 'Premier League', '20:15'),
+                ('Atlético Madrid', 'Sevilla', 'La Liga', '21:00'),
+                ('Juventus', 'AS Roma', 'Serie A', '20:45'),
+            ]
+        
+        fixtures = []
+        
+        for i, (home, away, league, time_str) in enumerate(matches):
+            fixtures.append({
+                'fixture_id': 50000 + i,
+                'date': today.strftime('%Y-%m-%d'),
+                'time': time_str,
+                'weekday': weekday,
+                'home_name': home,
+                'away_name': away,
+                'league_name': league,
+                'league_country': self._guess_country(league),
+                'status': 'NS',
+                'timestamp': int(time.time()),
+                'source': 'realistic_today',
+                'is_live': False,
+            })
+        
+        return fixtures
     
     def _get_live_fallback(self) -> List[Dict]:
         """Fallback avec des matchs en direct simulés"""
         current_hour = datetime.now().hour
         today = date.today()
+        weekday = today.strftime('%A')
         
-        # Matchs selon l'heure
+        # Matchs selon l'heure et le jour
         if 14 <= current_hour <= 17:
             matches = [
                 ('Manchester City', 'Liverpool', 'Premier League', '65\'', '2-1'),
@@ -254,9 +350,10 @@ class SofaScoreAPIClient:
             is_live = minute != 'FIN'
             
             fixtures.append({
-                'fixture_id': 30000 + i,
+                'fixture_id': 60000 + i,
                 'date': today.strftime('%Y-%m-%d'),
                 'time': datetime.now().strftime('%H:%M'),
+                'weekday': weekday,
                 'home_name': home,
                 'away_name': away,
                 'league_name': league,
@@ -267,40 +364,6 @@ class SofaScoreAPIClient:
                 'is_live': is_live,
                 'current_score': score if is_live else None,
                 'minute': minute if is_live else None,
-            })
-        
-        return fixtures
-    
-    def _get_fallback_matches(self) -> List[Dict]:
-        """Fallback avec des matchs du jour"""
-        today = date.today()
-        
-        matches = [
-            ('Paris Saint-Germain', 'AS Monaco', 'Ligue 1', '21:00'),
-            ('Real Madrid', 'Barcelona', 'La Liga', '20:00'),
-            ('Manchester City', 'Liverpool', 'Premier League', '16:30'),
-            ('Bayern Munich', 'Borussia Dortmund', 'Bundesliga', '18:30'),
-            ('Inter Milan', 'AC Milan', 'Serie A', '20:45'),
-            ('Arsenal', 'Chelsea', 'Premier League', '15:00'),
-            ('Atlético Madrid', 'Sevilla', 'La Liga', '19:00'),
-            ('Juventus', 'AS Roma', 'Serie A', '18:00'),
-        ]
-        
-        fixtures = []
-        
-        for i, (home, away, league, time_str) in enumerate(matches):
-            fixtures.append({
-                'fixture_id': 40000 + i,
-                'date': today.strftime('%Y-%m-%d'),
-                'time': time_str,
-                'home_name': home,
-                'away_name': away,
-                'league_name': league,
-                'league_country': self._guess_country(league),
-                'status': 'NS',
-                'timestamp': int(time.time()),
-                'source': 'fallback_today',
-                'is_live': False,
             })
         
         return fixtures
@@ -336,6 +399,12 @@ class LivePredictionSystem:
             'AS Roma': {'attack': 82, 'defense': 83, 'home': 85, 'away': 78},
             'Tottenham': {'attack': 88, 'defense': 82, 'home': 90, 'away': 83},
             'Manchester United': {'attack': 84, 'defense': 82, 'home': 86, 'away': 79},
+            'Bayer Leverkusen': {'attack': 89, 'defense': 84, 'home': 91, 'away': 85},
+            'RB Leipzig': {'attack': 85, 'defense': 82, 'home': 87, 'away': 81},
+            'Marseille': {'attack': 83, 'defense': 81, 'home': 85, 'away': 78},
+            'Lyon': {'attack': 81, 'defense': 79, 'home': 83, 'away': 76},
+            'Napoli': {'attack': 85, 'defense': 84, 'home': 87, 'away': 80},
+            'Lazio': {'attack': 82, 'defense': 83, 'home': 84, 'away': 78},
         }
     
     def get_team_data(self, team_name: str) -> Dict:
@@ -507,6 +576,7 @@ class LivePredictionSystem:
                 'league': league,
                 'date': fixture['date'],
                 'time': fixture['time'],
+                'weekday': fixture.get('weekday', ''),
                 'status': fixture.get('status', 'LIVE' if is_live else 'NS'),
                 'current_score': current_score,
                 'minute': minute,
@@ -763,6 +833,15 @@ def main():
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         text-align: center;
     }
+    .day-badge {
+        background: #4CAF50;
+        color: white;
+        padding: 5px 15px;
+        border-radius: 15px;
+        font-size: 0.9rem;
+        display: inline-block;
+        margin-bottom: 10px;
+    }
     </style>
     """, unsafe_allow_html=True)
     
@@ -815,7 +894,7 @@ def main():
         
         st.markdown("## 🔄 ACTUALISATION")
         
-        auto_refresh = st.checkbox("Actualisation auto", value=True)
+        auto_refresh = st.checkbox("Actualisation auto", value=False)
         if auto_refresh:
             refresh_rate = st.select_slider(
                 "Fréquence (secondes)",
@@ -894,8 +973,10 @@ def main():
     if 'predictions' in st.session_state and st.session_state.predictions:
         predictions = st.session_state.predictions
         
-        # Informations
-        col1, col2, col3 = st.columns(3)
+        # Informations générales
+        st.markdown(f"### 📅 {date.today().strftime('%A %d %B %Y')}")
+        
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Matchs trouvés", len(predictions))
         with col2:
@@ -903,6 +984,8 @@ def main():
         with col3:
             if st.session_state.last_update:
                 st.metric("Dernière mise à jour", st.session_state.last_update.strftime("%H:%M:%S"))
+        with col4:
+            st.metric("Mode", st.session_state.get('mode', 'N/A'))
         
         st.divider()
         
@@ -921,12 +1004,16 @@ def main():
             with col1:
                 st.markdown(f"**{pred['match']}**")
                 st.caption(f"{pred['league']} • {pred['date']} {pred['time']}")
+                if pred.get('weekday'):
+                    st.markdown(f'<span class="day-badge">{pred["weekday"]}</span>', unsafe_allow_html=True)
             
             with col2:
                 if is_live:
                     st.markdown(f'<div class="score-display">{pred.get("current_score", "0-0")}</div>', unsafe_allow_html=True)
                     if pred.get('minute'):
                         st.markdown(f"**{pred['minute']}**")
+                else:
+                    st.markdown(f"### {pred['time']}")
             
             with col3:
                 status_badge = "🔴 LIVE" if is_live else "⏳ À VENIR"
@@ -1015,8 +1102,11 @@ def main():
         
         ---
         
-        *⚠️ Note : Les données en direct dépendent de la disponibilité de l'API SofaScore*
-        """)
+        **⚠️ Note importante :**
+        - Les matchs affichés sont ceux d'aujourd'hui ({})
+        - Les données en direct dépendent de la disponibilité de l'API SofaScore
+        - En cas d'erreur API, des matchs réalistes sont générés
+        """.format(date.today().strftime('%d/%m/%Y')))
     
     # Auto-refresh
     if 'auto_refresh' in locals() and auto_refresh:
