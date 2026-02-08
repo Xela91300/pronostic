@@ -1,5 +1,5 @@
 # app.py - Système de Paris Sportifs en Temps Réel
-# Version Professionnelle avec API réelles
+# Version Professionnelle avec VOTRE API intégrée
 
 import pandas as pd
 import numpy as np
@@ -11,231 +11,336 @@ from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Tuple
 import warnings
 warnings.filterwarnings('ignore')
-import os
-from dataclasses import dataclass
-import threading
-from queue import Queue
 import plotly.graph_objects as go
 import plotly.express as px
-from concurrent.futures import ThreadPoolExecutor
+from scipy import stats
+import math
 
 # =============================================================================
 # CONFIGURATION DES API
 # =============================================================================
 
-@dataclass
 class APIConfig:
-    """Configuration des APIs de bookmakers"""
+    """Configuration des APIs avec VOTRE clé"""
     
-    # API-Football (api-sports.io)
-    API_FOOTBALL_KEY: str = st.secrets.get("API_FOOTBALL_KEY", "")
+    # VOTRE clé API-Football
+    API_FOOTBALL_KEY: str = "249b3051eCA063F0e381609128c00d7d"
     API_FOOTBALL_URL: str = "https://v3.football.api-sports.io"
     
-    # The Odds API (pour les cotes en direct)
+    # The Odds API (optionnel - vous pouvez l'ajouter plus tard)
     ODDS_API_KEY: str = st.secrets.get("ODDS_API_KEY", "")
     ODDS_API_URL: str = "https://api.the-odds-api.com/v4"
     
-    # Betfair Exchange API (pour l'échange)
-    BETFAIR_KEY: str = st.secrets.get("BETFAIR_KEY", "")
-    
-    # RapidAPI alternatives
-    RAPIDAPI_KEY: str = st.secrets.get("RAPIDAPI_KEY", "")
-    
-    # Cache configuration
-    CACHE_TTL: int = 60  # 1 minute pour les données en direct
-    MAX_RETRIES: int = 3
-    REQUEST_TIMEOUT: int = 10
+    # Configuration
+    CACHE_TTL: int = 300  # 5 minutes cache
+    REQUEST_TIMEOUT: int = 15
 
 # =============================================================================
 # CLIENT API PROFESSIONNEL
 # =============================================================================
 
-class ProfessionalOddsClient:
-    """Client professionnel pour récupérer les cotes en temps réel"""
+class FootballDataClient:
+    """Client pour l'API Football avec votre clé"""
     
-    def __init__(self, config: APIConfig):
-        self.config = config
+    def __init__(self):
+        self.config = APIConfig()
         self.session = requests.Session()
         self.session.headers.update({
+            'x-apisports-key': self.config.API_FOOTBALL_KEY,
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
         self.cache = {}
         self.cache_timestamps = {}
     
-    def get_live_odds(self, sport: str = 'soccer', regions: str = 'eu', 
-                      markets: str = 'h2h,spreads,totals') -> List[Dict]:
-        """Récupère les cotes en direct de The Odds API"""
-        
-        cache_key = f"odds_{sport}_{regions}_{markets}"
+    def test_connection(self) -> bool:
+        """Teste la connexion à l'API"""
+        try:
+            url = f"{self.config.API_FOOTBALL_URL}/status"
+            response = self.session.get(url, timeout=10)
+            return response.status_code == 200
+        except:
+            return False
+    
+    def get_leagues(self) -> List[Dict]:
+        """Récupère toutes les ligues disponibles"""
+        cache_key = "all_leagues"
         if self._is_cached(cache_key):
             return self.cache[cache_key]
         
         try:
-            url = f"{self.config.ODDS_API_URL}/sports/{sport}/odds"
-            params = {
-                'apiKey': self.config.ODDS_API_KEY,
-                'regions': regions,
-                'markets': markets,
-                'oddsFormat': 'decimal',
-                'dateFormat': 'iso'
-            }
+            url = f"{self.config.API_FOOTBALL_URL}/leagues"
+            response = self.session.get(url, timeout=self.config.REQUEST_TIMEOUT)
             
-            response = self.session.get(url, params=params, timeout=self.config.REQUEST_TIMEOUT)
-            response.raise_for_status()
+            if response.status_code == 200:
+                data = response.json().get('response', [])
+                leagues = []
+                
+                for item in data:
+                    league = item.get('league', {})
+                    country = item.get('country', {})
+                    
+                    leagues.append({
+                        'id': league.get('id'),
+                        'name': league.get('name'),
+                        'type': league.get('type'),
+                        'logo': league.get('logo'),
+                        'country': country.get('name'),
+                        'country_code': country.get('code'),
+                        'flag': country.get('flag'),
+                        'season': item.get('seasons', [{}])[-1].get('year', 2024)
+                    })
+                
+                self._cache_data(cache_key, leagues)
+                return leagues
             
-            data = response.json()
-            self._cache_data(cache_key, data)
-            
-            return self._process_odds_data(data)
+            return []
             
         except Exception as e:
-            st.error(f"Erreur API Odds: {str(e)}")
+            st.error(f"Erreur récupération ligues: {str(e)}")
             return []
     
-    def get_fixtures(self, league_id: int, season: int, 
-                    from_date: str, to_date: str) -> List[Dict]:
-        """Récupère les matchs de l'API-Football"""
-        
-        cache_key = f"fixtures_{league_id}_{season}_{from_date}_{to_date}"
+    def get_fixtures(self, league_id: int, season: int = 2024, 
+                    from_date: str = None, to_date: str = None, 
+                    next: int = None) -> List[Dict]:
+        """Récupère les matchs"""
+        cache_key = f"fixtures_{league_id}_{season}_{from_date}_{to_date}_{next}"
         if self._is_cached(cache_key):
             return self.cache[cache_key]
         
         try:
             url = f"{self.config.API_FOOTBALL_URL}/fixtures"
-            headers = {
-                'x-apisports-key': self.config.API_FOOTBALL_KEY
-            }
             params = {
                 'league': league_id,
                 'season': season,
-                'from': from_date,
-                'to': to_date,
                 'timezone': 'Europe/Paris'
             }
             
-            response = self.session.get(url, headers=headers, params=params, 
-                                       timeout=self.config.REQUEST_TIMEOUT)
-            response.raise_for_status()
+            if from_date:
+                params['from'] = from_date
+            if to_date:
+                params['to'] = to_date
+            if next:
+                params['next'] = next
             
-            data = response.json().get('response', [])
-            self._cache_data(cache_key, data)
+            response = self.session.get(url, params=params, timeout=self.config.REQUEST_TIMEOUT)
             
-            return data
+            if response.status_code == 200:
+                data = response.json().get('response', [])
+                fixtures = []
+                
+                for fixture in data:
+                    fixture_data = fixture.get('fixture', {})
+                    teams = fixture.get('teams', {})
+                    goals = fixture.get('goals', {})
+                    league = fixture.get('league', {})
+                    
+                    fixtures.append({
+                        'fixture_id': fixture_data.get('id'),
+                        'date': fixture_data.get('date'),
+                        'timestamp': fixture_data.get('timestamp'),
+                        'timezone': fixture_data.get('timezone'),
+                        'venue': fixture_data.get('venue', {}).get('name'),
+                        'status': fixture_data.get('status', {}),
+                        'home_id': teams.get('home', {}).get('id'),
+                        'home_name': teams.get('home', {}).get('name'),
+                        'home_logo': teams.get('home', {}).get('logo'),
+                        'away_id': teams.get('away', {}).get('id'),
+                        'away_name': teams.get('away', {}).get('name'),
+                        'away_logo': teams.get('away', {}).get('logo'),
+                        'home_score': goals.get('home'),
+                        'away_score': goals.get('away'),
+                        'league_id': league.get('id'),
+                        'league_name': league.get('name'),
+                        'league_logo': league.get('logo'),
+                        'league_country': league.get('country'),
+                        'round': league.get('round')
+                    })
+                
+                self._cache_data(cache_key, fixtures)
+                return fixtures
+            
+            return []
             
         except Exception as e:
-            st.error(f"Erreur API Fixtures: {str(e)}")
+            st.error(f"Erreur récupération matchs: {str(e)}")
             return []
     
     def get_live_fixtures(self) -> List[Dict]:
-        """Récupère les matchs en cours"""
+        """Récupère les matchs en direct"""
         try:
             url = f"{self.config.API_FOOTBALL_URL}/fixtures"
-            headers = {
-                'x-apisports-key': self.config.API_FOOTBALL_KEY
-            }
             params = {
                 'live': 'all',
                 'timezone': 'Europe/Paris'
             }
             
-            response = self.session.get(url, headers=headers, params=params,
-                                       timeout=self.config.REQUEST_TIMEOUT)
-            response.raise_for_status()
+            response = self.session.get(url, params=params, timeout=self.config.REQUEST_TIMEOUT)
             
-            return response.json().get('response', [])
+            if response.status_code == 200:
+                data = response.json().get('response', [])
+                live_matches = []
+                
+                for fixture in data:
+                    fixture_data = fixture.get('fixture', {})
+                    teams = fixture.get('teams', {})
+                    goals = fixture.get('goals', {})
+                    events = fixture.get('events', [])
+                    statistics = fixture.get('statistics', [])
+                    
+                    live_match = {
+                        'fixture_id': fixture_data.get('id'),
+                        'date': fixture_data.get('date'),
+                        'status': fixture_data.get('status', {}),
+                        'elapsed': fixture_data.get('status', {}).get('elapsed', 0),
+                        'home_id': teams.get('home', {}).get('id'),
+                        'home_name': teams.get('home', {}).get('name'),
+                        'home_logo': teams.get('home', {}).get('logo'),
+                        'away_id': teams.get('away', {}).get('id'),
+                        'away_name': teams.get('away', {}).get('name'),
+                        'away_logo': teams.get('away', {}).get('logo'),
+                        'home_score': goals.get('home', 0),
+                        'away_score': goals.get('away', 0),
+                        'events': events,
+                        'statistics': statistics,
+                        'is_live': True
+                    }
+                    
+                    live_matches.append(live_match)
+                
+                return live_matches
+            
+            return []
             
         except Exception as e:
-            st.error(f"Erreur matchs en direct: {str(e)}")
+            st.warning(f"Erreur matchs en direct: {str(e)}")
             return []
     
-    def get_fixture_statistics(self, fixture_id: int) -> Dict:
+    def get_team_statistics(self, team_id: int, league_id: int, season: int = 2024) -> Dict:
+        """Récupère les statistiques d'une équipe"""
+        cache_key = f"team_stats_{team_id}_{league_id}_{season}"
+        if self._is_cached(cache_key):
+            return self.cache[cache_key]
+        
+        try:
+            url = f"{self.config.API_FOOTBALL_URL}/teams/statistics"
+            params = {
+                'team': team_id,
+                'league': league_id,
+                'season': season
+            }
+            
+            response = self.session.get(url, params=params, timeout=self.config.REQUEST_TIMEOUT)
+            
+            if response.status_code == 200:
+                data = response.json().get('response', {})
+                self._cache_data(cache_key, data)
+                return data
+            
+            return {}
+            
+        except Exception as e:
+            st.warning(f"Statistiques équipe non disponibles: {str(e)}")
+            return {}
+    
+    def get_fixture_statistics(self, fixture_id: int) -> List[Dict]:
         """Récupère les statistiques d'un match"""
         try:
             url = f"{self.config.API_FOOTBALL_URL}/fixtures/statistics"
-            headers = {
-                'x-apisports-key': self.config.API_FOOTBALL_KEY
-            }
             params = {'fixture': fixture_id}
             
-            response = self.session.get(url, headers=headers, params=params,
-                                       timeout=self.config.REQUEST_TIMEOUT)
-            response.raise_for_status()
+            response = self.session.get(url, params=params, timeout=self.config.REQUEST_TIMEOUT)
             
-            return response.json().get('response', {})
+            if response.status_code == 200:
+                return response.json().get('response', [])
             
-        except Exception as e:
-            st.warning(f"Statistiques non disponibles: {str(e)}")
-            return {}
-    
-    def get_fixture_events(self, fixture_id: int) -> List[Dict]:
-        """Récupère les événements d'un match (buts, cartons)"""
-        try:
-            url = f"{self.config.API_FOOTBALL_URL}/fixtures/events"
-            headers = {
-                'x-apisports-key': self.config.API_FOOTBALL_KEY
-            }
-            params = {'fixture': fixture_id}
+            return []
             
-            response = self.session.get(url, headers=headers, params=params,
-                                       timeout=self.config.REQUEST_TIMEOUT)
-            response.raise_for_status()
-            
-            return response.json().get('response', [])
-            
-        except Exception as e:
-            st.warning(f"Événements non disponibles: {str(e)}")
+        except Exception:
             return []
     
-    def _process_odds_data(self, raw_data: List[Dict]) -> List[Dict]:
-        """Traite les données de cotes"""
-        processed = []
-        
-        for match in raw_data:
-            try:
-                # Récupérer les meilleures cotes par marché
-                best_odds = self._extract_best_odds(match.get('bookmakers', []))
-                
-                processed_match = {
-                    'id': match.get('id'),
-                    'sport_key': match.get('sport_key'),
-                    'commence_time': match.get('commence_time'),
-                    'home_team': match.get('home_team'),
-                    'away_team': match.get('away_team'),
-                    'best_odds': best_odds,
-                    'bookmakers': [b.get('key') for b in match.get('bookmakers', [])],
-                    'last_updated': datetime.now().isoformat()
-                }
-                
-                processed.append(processed_match)
-                
-            except Exception as e:
-                continue
-        
-        return processed
+    def get_fixture_events(self, fixture_id: int) -> List[Dict]:
+        """Récupère les événements d'un match"""
+        try:
+            url = f"{self.config.API_FOOTBALL_URL}/fixtures/events"
+            params = {'fixture': fixture_id}
+            
+            response = self.session.get(url, params=params, timeout=self.config.REQUEST_TIMEOUT)
+            
+            if response.status_code == 200:
+                return response.json().get('response', [])
+            
+            return []
+            
+        except Exception:
+            return []
     
-    def _extract_best_odds(self, bookmakers: List[Dict]) -> Dict:
-        """Extrait les meilleures cotes parmi tous les bookmakers"""
-        best_odds = {
-            'home': {'odds': 0, 'bookmaker': None},
-            'draw': {'odds': 0, 'bookmaker': None},
-            'away': {'odds': 0, 'bookmaker': None}
-        }
+    def get_team_fixtures(self, team_id: int, season: int = 2024, last: int = 10) -> List[Dict]:
+        """Récupère les derniers matchs d'une équipe"""
+        cache_key = f"team_fixtures_{team_id}_{season}_{last}"
+        if self._is_cached(cache_key):
+            return self.cache[cache_key]
         
-        for bookmaker in bookmakers:
-            for market in bookmaker.get('markets', []):
-                if market.get('key') == 'h2h':
-                    for outcome in market.get('outcomes', []):
-                        outcome_name = outcome.get('name', '').lower()
-                        odds = outcome.get('price', 0)
-                        
-                        if 'home' in outcome_name and odds > best_odds['home']['odds']:
-                            best_odds['home'] = {'odds': odds, 'bookmaker': bookmaker.get('key')}
-                        elif 'draw' in outcome_name and odds > best_odds['draw']['odds']:
-                            best_odds['draw'] = {'odds': odds, 'bookmaker': bookmaker.get('key')}
-                        elif 'away' in outcome_name and odds > best_odds['away']['odds']:
-                            best_odds['away'] = {'odds': odds, 'bookmaker': bookmaker.get('key')}
-        
-        return best_odds
+        try:
+            url = f"{self.config.API_FOOTBALL_URL}/fixtures"
+            params = {
+                'team': team_id,
+                'season': season,
+                'last': last
+            }
+            
+            response = self.session.get(url, params=params, timeout=self.config.REQUEST_TIMEOUT)
+            
+            if response.status_code == 200:
+                data = response.json().get('response', [])
+                fixtures = []
+                
+                for fixture in data:
+                    fixture_data = fixture.get('fixture', {})
+                    teams = fixture.get('teams', {})
+                    goals = fixture.get('goals', {})
+                    
+                    fixtures.append({
+                        'fixture_id': fixture_data.get('id'),
+                        'date': fixture_data.get('date'),
+                        'home_id': teams.get('home', {}).get('id'),
+                        'home_name': teams.get('home', {}).get('name'),
+                        'away_id': teams.get('away', {}).get('id'),
+                        'away_name': teams.get('away', {}).get('name'),
+                        'home_score': goals.get('home'),
+                        'away_score': goals.get('away'),
+                        'is_home': teams.get('home', {}).get('id') == team_id
+                    })
+                
+                self._cache_data(cache_key, fixtures)
+                return fixtures
+            
+            return []
+            
+        except Exception as e:
+            st.warning(f"Historique équipe non disponible: {str(e)}")
+            return []
+    
+    def get_odds(self, fixture_id: int, bookmaker: int = 6) -> Dict:
+        """Récupère les cotes pour un match"""
+        try:
+            url = f"{self.config.API_FOOTBALL_URL}/odds"
+            params = {
+                'fixture': fixture_id,
+                'bookmaker': bookmaker
+            }
+            
+            response = self.session.get(url, params=params, timeout=self.config.REQUEST_TIMEOUT)
+            
+            if response.status_code == 200:
+                data = response.json().get('response', [])
+                if data:
+                    return data[0]
+            
+            return {}
+            
+        except Exception as e:
+            st.warning(f"Cotes non disponibles: {str(e)}")
+            return {}
     
     def _is_cached(self, key: str) -> bool:
         """Vérifie si les données sont en cache"""
@@ -250,174 +355,176 @@ class ProfessionalOddsClient:
         self.cache_timestamps[key] = datetime.now()
 
 # =============================================================================
-# MODÈLE DE PRÉDICTION AVANCÉ
+# SYSTÈME ELO AVANCÉ
 # =============================================================================
 
-class AdvancedPredictionModel:
-    """Modèle de prédiction avancé avec machine learning"""
+class AdvancedEloSystem:
+    """Système Elo avancé pour le football"""
     
-    def __init__(self):
-        self.models = {}
-        self.feature_encoder = {}
-        self.scaler = None
+    def __init__(self, k_factor: float = 32.0, home_advantage: float = 70.0):
+        self.k_factor = k_factor
+        self.home_advantage = home_advantage
         self.team_ratings = {}
-        
-    def train_model(self, historical_data: pd.DataFrame):
-        """Entraîne le modèle sur les données historiques"""
-        try:
-            # Préparation des features
-            features, labels = self._prepare_training_data(historical_data)
-            
-            if len(features) < 100:
-                st.warning("Données insuffisantes pour l'entraînement")
-                return
-            
-            # Entraînement du modèle
-            from sklearn.ensemble import GradientBoostingClassifier
-            from sklearn.preprocessing import StandardScaler
-            from sklearn.model_selection import train_test_split
-            
-            # Split train/test
-            X_train, X_test, y_train, y_test = train_test_split(
-                features, labels, test_size=0.2, random_state=42
-            )
-            
-            # Normalisation
-            self.scaler = StandardScaler()
-            X_train_scaled = self.scaler.fit_transform(X_train)
-            X_test_scaled = self.scaler.transform(X_test)
-            
-            # Modèle Gradient Boosting
-            model = GradientBoostingClassifier(
-                n_estimators=200,
-                learning_rate=0.05,
-                max_depth=5,
-                min_samples_split=20,
-                random_state=42
-            )
-            
-            model.fit(X_train_scaled, y_train)
-            
-            # Évaluation
-            train_score = model.score(X_train_scaled, y_train)
-            test_score = model.score(X_test_scaled, y_test)
-            
-            self.models['gradient_boosting'] = model
-            
-            st.success(f"""
-            🎯 Modèle entraîné avec succès:
-            - Accuracy (train): {train_score:.3f}
-            - Accuracy (test): {test_score:.3f}
-            - Échantillons: {len(features)}
-            """)
-            
-        except Exception as e:
-            st.error(f"Erreur entraînement modèle: {str(e)}")
+        self.team_history = {}
     
-    def predict_match(self, home_team: str, away_team: str, 
-                     match_context: Dict) -> Dict:
-        """Prédit les probabilités d'un match"""
-        try:
-            # Features pour la prédiction
-            features = self._extract_match_features(home_team, away_team, match_context)
-            
-            if self.scaler and 'gradient_boosting' in self.models:
-                features_scaled = self.scaler.transform([features])
-                model = self.models['gradient_boosting']
-                
-                # Probabilités
-                probabilities = model.predict_proba(features_scaled)[0]
-                
-                return {
-                    'home_win': float(probabilities[2]),  # Index pour victoire domicile
-                    'draw': float(probabilities[1]),      # Index pour match nul
-                    'away_win': float(probabilities[0]),  # Index pour victoire extérieur
-                    'confidence': float(np.max(probabilities)),
-                    'features_used': len(features)
-                }
-            
-            # Fallback: modèle Elo simple
-            return self._elo_prediction(home_team, away_team, match_context)
-            
-        except Exception as e:
-            st.error(f"Erreur prédiction: {str(e)}")
-            return {'home_win': 0.33, 'draw': 0.34, 'away_win': 0.33, 'confidence': 0.5}
+    def calculate_expected_score(self, rating_a: float, rating_b: float, 
+                               home_advantage: float = 0) -> float:
+        """Calcule le score attendu entre deux ratings"""
+        return 1 / (1 + 10 ** ((rating_b - rating_a - home_advantage) / 400))
     
-    def _prepare_training_data(self, data: pd.DataFrame) -> Tuple:
-        """Prépare les données d'entraînement"""
-        features_list = []
-        labels_list = []
-        
-        for _, match in data.iterrows():
-            try:
-                features = self._extract_match_features(
-                    match['home_team'],
-                    match['away_team'],
-                    match.to_dict()
-                )
-                
-                # Label: résultat du match
-                if match['home_score'] > match['away_score']:
-                    label = 2  # Victoire domicile
-                elif match['home_score'] < match['away_score']:
-                    label = 0  # Victoire extérieur
-                else:
-                    label = 1  # Match nul
-                
-                features_list.append(features)
-                labels_list.append(label)
-                
-            except Exception as e:
-                continue
-        
-        return np.array(features_list), np.array(labels_list)
+    def margin_of_victory_multiplier(self, goal_diff: int, rating_diff: float) -> float:
+        """Multiplicateur basé sur la marge de victoire"""
+        return np.log(abs(goal_diff) + 1) * (2.2 / (abs(rating_diff) * 0.001 + 2.2))
     
-    def _extract_match_features(self, home_team: str, away_team: str, 
-                               context: Dict) -> np.ndarray:
-        """Extrait les features d'un match"""
-        features = []
+    def update_ratings(self, home_id: int, away_id: int, 
+                      home_score: int, away_score: int, 
+                      match_date: datetime = None, is_neutral: bool = False):
+        """Met à jour les ratings après un match"""
         
-        # 1. Ratings Elo (simplifiés)
-        home_elo = self.team_ratings.get(home_team, 1500)
-        away_elo = self.team_ratings.get(away_team, 1500)
-        features.extend([home_elo, away_elo, home_elo - away_elo])
+        # Initialiser les équipes si nécessaire
+        if home_id not in self.team_ratings:
+            self.team_ratings[home_id] = {'elo': 1500, 'games': 0, 'last_update': match_date}
+        if away_id not in self.team_ratings:
+            self.team_ratings[away_id] = {'elo': 1500, 'games': 0, 'last_update': match_date}
         
-        # 2. Forme récente (derniers 5 matchs)
-        home_form = context.get('home_form', 0.5)
-        away_form = context.get('away_form', 0.5)
-        features.extend([home_form, away_form, home_form - away_form])
+        home_rating = self.team_ratings[home_id]['elo']
+        away_rating = self.team_ratings[away_id]['elo']
         
-        # 3. Statistiques offensives/défensives
-        home_goals_avg = context.get('home_goals_avg', 1.5)
-        away_goals_avg = context.get('away_goals_avg', 1.5)
-        home_conceded_avg = context.get('home_conceded_avg', 1.2)
-        away_conceded_avg = context.get('away_conceded_avg', 1.2)
-        features.extend([
-            home_goals_avg - away_conceded_avg,
-            away_goals_avg - home_conceded_avg
-        ])
+        # Appliquer décay temporel
+        self.apply_time_decay(home_id, match_date)
+        self.apply_time_decay(away_id, match_date)
         
-        # 4. Facteurs contextuels
-        is_weekend = 1 if context.get('is_weekend', False) else 0
-        is_derby = 1 if context.get('is_derby', False) else 0
-        features.extend([is_weekend, is_derby])
+        home_rating = self.team_ratings[home_id]['elo']
+        away_rating = self.team_ratings[away_id]['elo']
         
-        return np.array(features)
-    
-    def _elo_prediction(self, home_team: str, away_team: str, 
-                       context: Dict) -> Dict:
-        """Prédiction basée sur le système Elo"""
-        home_elo = self.team_ratings.get(home_team, 1500)
-        away_elo = self.team_ratings.get(away_team, 1500)
+        # Déterminer le résultat
+        if home_score > away_score:
+            actual_home = 1.0
+            actual_away = 0.0
+        elif home_score < away_score:
+            actual_home = 0.0
+            actual_away = 1.0
+        else:
+            actual_home = 0.5
+            actual_away = 0.5
         
         # Avantage terrain
-        home_advantage = 70
+        home_adv = 0 if is_neutral else self.home_advantage
+        
+        # Score attendu
+        expected_home = self.calculate_expected_score(home_rating, away_rating, home_adv)
+        expected_away = 1 - expected_home
+        
+        # Multiplicateur marge de victoire
+        goal_diff = home_score - away_score
+        rating_diff = home_rating - away_rating
+        mov_multiplier = self.margin_of_victory_multiplier(goal_diff, rating_diff)
+        
+        # Mise à jour Elo
+        k = self.k_factor * mov_multiplier
+        home_elo_change = k * (actual_home - expected_home)
+        away_elo_change = k * (actual_away - expected_away)
+        
+        self.team_ratings[home_id]['elo'] += home_elo_change
+        self.team_ratings[away_id]['elo'] -= home_elo_change  # Conservation somme
+        
+        # Mettre à jour les compteurs
+        self.team_ratings[home_id]['games'] += 1
+        self.team_ratings[away_id]['games'] += 1
+        self.team_ratings[home_id]['last_update'] = match_date
+        self.team_ratings[away_id]['last_update'] = match_date
+        
+        # Enregistrer l'historique
+        match_record = {
+            'date': match_date,
+            'home_id': home_id,
+            'away_id': away_id,
+            'home_score': home_score,
+            'away_score': away_score,
+            'home_elo_before': home_rating,
+            'away_elo_before': away_rating,
+            'home_elo_change': home_elo_change,
+            'home_elo_after': self.team_ratings[home_id]['elo'],
+            'away_elo_after': self.team_ratings[away_id]['elo']
+        }
+        
+        if home_id not in self.team_history:
+            self.team_history[home_id] = []
+        if away_id not in self.team_history:
+            self.team_history[away_id] = []
+        
+        self.team_history[home_id].append(match_record)
+        self.team_history[away_id].append(match_record)
+        
+        return home_elo_change
+    
+    def apply_time_decay(self, team_id: int, current_date: datetime):
+        """Applique un décay temporel au rating"""
+        if team_id in self.team_ratings:
+            last_update = self.team_ratings[team_id]['last_update']
+            if last_update:
+                days_since = (current_date - last_update).days
+                if days_since > 30:  # Décay après 30 jours sans match
+                    decay_factor = 0.99 ** (days_since / 30)
+                    current_elo = self.team_ratings[team_id]['elo']
+                    base_elo = 1500
+                    self.team_ratings[team_id]['elo'] = current_elo * decay_factor + base_elo * (1 - decay_factor)
+    
+    def get_team_form(self, team_id: int, last_n: int = 5) -> float:
+        """Calcule la forme sur les N derniers matchs"""
+        if team_id not in self.team_history or len(self.team_history[team_id]) < last_n:
+            return 0.5
+        
+        recent_matches = self.team_history[team_id][-last_n:]
+        points = 0
+        
+        for match in recent_matches:
+            is_home = match['home_id'] == team_id
+            
+            if is_home:
+                home_score = match['home_score']
+                away_score = match['away_score']
+            else:
+                home_score = match['away_score']
+                away_score = match['home_score']
+            
+            if home_score > away_score:
+                points += 3
+            elif home_score == away_score:
+                points += 1
+        
+        max_points = last_n * 3
+        return points / max_points if max_points > 0 else 0.5
+    
+    def predict_match(self, home_id: int, away_id: int, 
+                     home_form: float = None, away_form: float = None,
+                     is_neutral: bool = False) -> Dict:
+        """Prédit les probabilités d'un match"""
+        
+        # Ratings de base
+        home_elo = self.team_ratings.get(home_id, {}).get('elo', 1500)
+        away_elo = self.team_ratings.get(away_id, {}).get('elo', 1500)
+        
+        # Ajustement par la forme
+        if home_form is None:
+            home_form = self.get_team_form(home_id, 5)
+        if away_form is None:
+            away_form = self.get_team_form(away_id, 5)
+        
+        form_adjustment = (home_form - 0.5) * 50 - (away_form - 0.5) * 50
+        
+        # Avantage terrain
+        home_adv = 0 if is_neutral else self.home_advantage
+        
+        # Rating effectif avec forme
+        effective_home = home_elo + form_adjustment + home_adv
+        effective_away = away_elo - form_adjustment
         
         # Probabilité victoire domicile
-        home_win_prob = 1 / (1 + 10 ** ((away_elo - home_elo - home_advantage) / 400))
+        home_win_prob = self.calculate_expected_score(effective_home, effective_away)
         
-        # Modèle de match nul
-        elo_diff = abs(home_elo - away_elo)
+        # Probabilité match nul (basée sur différence Elo)
+        elo_diff = abs(effective_home - effective_away)
         draw_prob = 0.25 * np.exp(-elo_diff / 200)
         
         # Normalisation
@@ -426,132 +533,251 @@ class AdvancedPredictionModel:
         draw_prob /= total
         away_win_prob = 1 - home_win_prob - draw_prob
         
+        # Confiance basée sur la différence Elo
+        confidence = 1 - 1 / (1 + np.exp(-abs(elo_diff) / 100))
+        
         return {
             'home_win': home_win_prob,
             'draw': draw_prob,
             'away_win': away_win_prob,
-            'confidence': max(home_win_prob, draw_prob, away_win_prob)
+            'home_elo': home_elo,
+            'away_elo': away_elo,
+            'home_form': home_form,
+            'away_form': away_form,
+            'elo_diff': elo_diff,
+            'confidence': confidence
         }
+    
+    def train_from_fixtures(self, fixtures: List[Dict]):
+        """Entraîne le système Elo sur des matchs historiques"""
+        for fixture in fixtures:
+            home_id = fixture.get('home_id')
+            away_id = fixture.get('away_id')
+            home_score = fixture.get('home_score')
+            away_score = fixture.get('away_score')
+            date_str = fixture.get('date')
+            
+            if all([home_id, away_id, home_score is not None, away_score is not None, date_str]):
+                try:
+                    match_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                    self.update_ratings(home_id, away_id, home_score, away_score, match_date)
+                except:
+                    continue
 
 # =============================================================================
-# DÉTECTEUR DE VALUE BETS
+# VALUE BET DETECTOR
 # =============================================================================
 
 class ValueBetDetector:
-    """Détecteur avancé de value bets"""
+    """Détecteur de value bets"""
     
-    def __init__(self, prediction_model: AdvancedPredictionModel):
-        self.model = prediction_model
-        self.min_edge = 0.02  # Edge minimum de 2%
-        self.min_confidence = 0.60  # Confiance minimum de 60%
+    def __init__(self, elo_system: AdvancedEloSystem):
+        self.elo = elo_system
+        self.min_edge = 0.02  # 2% minimum
+        self.min_confidence = 0.60  # 60% minimum
         
-    def analyze_match(self, match_data: Dict, odds_data: Dict) -> Optional[Dict]:
+    def analyze_fixture(self, fixture: Dict, odds_data: Dict = None) -> Optional[Dict]:
         """Analyse un match pour détecter les value bets"""
         try:
-            # Prédiction du modèle
-            prediction = self.model.predict_match(
-                match_data['home_team'],
-                match_data['away_team'],
-                match_data
-            )
+            home_id = fixture.get('home_id')
+            away_id = fixture.get('away_id')
+            home_name = fixture.get('home_name')
+            away_name = fixture.get('away_name')
             
-            # Récupérer les cotes
-            best_odds = odds_data.get('best_odds', {})
+            if not all([home_id, away_id, home_name, away_name]):
+                return None
+            
+            # Prédiction Elo
+            prediction = self.elo.predict_match(home_id, away_id)
+            
+            # Si pas de cotes, retourner juste la prédiction
+            if not odds_data:
+                return {
+                    'fixture_id': fixture.get('fixture_id'),
+                    'match': f"{home_name} vs {away_name}",
+                    'league': fixture.get('league_name'),
+                    'date': fixture.get('date'),
+                    'prediction': prediction,
+                    'value_bets': [],
+                    'status': 'no_odds'
+                }
+            
+            # Extraire les cotes
+            bookmaker_odds = self._extract_odds(odds_data)
             
             # Analyser chaque marché
             value_bets = []
             
             # Marché 1X2
-            h2h_value = self._analyze_h2h_market(prediction, best_odds)
-            if h2h_value:
-                value_bets.append(h2h_value)
+            h2h_analysis = self._analyze_h2h(prediction, bookmaker_odds)
+            if h2h_analysis:
+                value_bets.extend(h2h_analysis)
             
-            # Marché Asian Handicap
-            ah_value = self._analyze_asian_handicap(prediction, odds_data)
-            if ah_value:
-                value_bets.append(ah_value)
+            # Analyser Over/Under si disponible
+            ou_analysis = self._analyze_over_under(prediction, bookmaker_odds)
+            if ou_analysis:
+                value_bets.extend(ou_analysis)
             
-            # Marché Over/Under
-            ou_value = self._analyze_over_under(prediction, odds_data)
-            if ou_value:
-                value_bets.append(ou_value)
+            # Filtrer les value bets significatifs
+            significant_bets = [bet for bet in value_bets if bet['edge'] >= self.min_edge]
             
-            # Trouver le meilleur value bet
-            if value_bets:
-                best_value = max(value_bets, key=lambda x: x['value_score'])
-                
-                if (best_value['edge'] >= self.min_edge and 
-                    best_value['confidence'] >= self.min_confidence):
-                    
-                    return {
-                        'match': f"{match_data['home_team']} vs {match_data['away_team']}",
-                        'league': match_data.get('league', 'Unknown'),
-                        'date': match_data.get('date'),
-                        'prediction': prediction,
-                        'value_bet': best_value,
-                        'analysis_time': datetime.now().isoformat()
-                    }
-            
-            return None
+            return {
+                'fixture_id': fixture.get('fixture_id'),
+                'match': f"{home_name} vs {away_name}",
+                'league': fixture.get('league_name'),
+                'date': fixture.get('date'),
+                'prediction': prediction,
+                'value_bets': significant_bets,
+                'odds_available': bool(bookmaker_odds),
+                'status': 'analyzed'
+            }
             
         except Exception as e:
             st.error(f"Erreur analyse match: {str(e)}")
             return None
     
-    def _analyze_h2h_market(self, prediction: Dict, odds: Dict) -> Optional[Dict]:
+    def _extract_odds(self, odds_data: Dict) -> Dict:
+        """Extrait les cotes de l'API"""
+        try:
+            bookmakers = odds_data.get('bookmakers', [])
+            if not bookmakers:
+                return {}
+            
+            # Prendre le premier bookmaker (généralement le plus fiable)
+            bookmaker = bookmakers[0]
+            bets = {}
+            
+            for bet in bookmaker.get('bets', []):
+                market = bet.get('name', '').lower()
+                
+                if market == 'match winner':
+                    for value in bet.get('values', []):
+                        outcome = value.get('value', '').lower()
+                        odd = float(value.get('odd', 1))
+                        
+                        if 'home' in outcome:
+                            bets['home'] = odd
+                        elif 'draw' in outcome:
+                            bets['draw'] = odd
+                        elif 'away' in outcome:
+                            bets['away'] = odd
+                
+                elif 'over' in market or 'under' in market:
+                    # Extraire le nombre de buts
+                    import re
+                    numbers = re.findall(r'\d+\.?\d*', market)
+                    if numbers:
+                        threshold = float(numbers[0])
+                        for value in bet.get('values', []):
+                            outcome = value.get('value', '').lower()
+                            odd = float(value.get('odd', 1))
+                            
+                            if 'over' in outcome:
+                                bets[f'over_{threshold}'] = odd
+                            elif 'under' in outcome:
+                                bets[f'under_{threshold}'] = odd
+            
+            return bets
+            
+        except Exception:
+            return {}
+    
+    def _analyze_h2h(self, prediction: Dict, odds: Dict) -> List[Dict]:
         """Analyse le marché 1X2"""
+        value_bets = []
+        
         markets = [
-            {'type': 'home', 'prob': prediction['home_win'], 'odds_key': 'home'},
-            {'type': 'draw', 'prob': prediction['draw'], 'odds_key': 'draw'},
-            {'type': 'away', 'prob': prediction['away_win'], 'odds_key': 'away'}
+            {'key': 'home', 'prob': prediction['home_win'], 'name': '1'},
+            {'key': 'draw', 'prob': prediction['draw'], 'name': 'X'},
+            {'key': 'away', 'prob': prediction['away_win'], 'name': '2'}
         ]
         
-        best_value = None
-        max_edge = 0
-        
         for market in markets:
-            odds_value = odds.get(market['odds_key'], {}).get('odds', 0)
+            odds_value = odds.get(market['key'])
             
-            if odds_value > 1:  # Éviter division par zéro
+            if odds_value and odds_value > 1:
                 edge = self._calculate_edge(market['prob'], odds_value)
                 
-                if edge > max_edge and edge > self.min_edge:
-                    max_edge = edge
-                    best_value = {
+                if edge >= self.min_edge and prediction['confidence'] >= self.min_confidence:
+                    value_bet = {
                         'market': '1X2',
-                        'selection': market['type'].upper(),
+                        'selection': market['name'],
                         'probability': market['prob'],
                         'odds': odds_value,
-                        'bookmaker': odds.get(market['odds_key'], {}).get('bookmaker'),
                         'edge': edge,
                         'implied_prob': 1 / odds_value,
                         'value_score': edge * market['prob'] * 100,
-                        'confidence': prediction['confidence']
+                        'confidence': prediction['confidence'],
+                        'expected_value': (market['prob'] * odds_value) - 1
                     }
+                    
+                    value_bets.append(value_bet)
         
-        return best_value
+        return value_bets
     
-    def _analyze_asian_handicap(self, prediction: Dict, odds_data: Dict) -> Optional[Dict]:
-        """Analyse le marché Asian Handicap"""
-        # Implémentation simplifiée
-        # Dans une version complète, on analyserait les différents handicaps
-        return None
-    
-    def _analyze_over_under(self, prediction: Dict, odds_data: Dict) -> Optional[Dict]:
-        """Analyse le marché Over/Under"""
-        # Implémentation simplifiée
-        # Dans une version complète, on prédirait le nombre de buts
-        return None
+    def _analyze_over_under(self, prediction: Dict, odds: Dict) -> List[Dict]:
+        """Analyse les marchés Over/Under"""
+        value_bets = []
+        
+        # Estimation du nombre de buts attendus
+        # Basé sur les probabilités et historique
+        expected_goals = 2.5  # Valeur par défaut
+        
+        # Analyser différents seuils
+        thresholds = [1.5, 2.5, 3.5]
+        
+        for threshold in thresholds:
+            over_key = f'over_{threshold}'
+            under_key = f'under_{threshold}'
+            
+            # Probabilité estimée (simplifiée)
+            # Dans une vraie implémentation, utiliser un modèle de prédiction de buts
+            if expected_goals > threshold:
+                over_prob = 0.6  # Estimation
+                under_prob = 0.4
+            else:
+                over_prob = 0.4
+                under_prob = 0.6
+            
+            # Analyser Over
+            over_odds = odds.get(over_key)
+            if over_odds and over_odds > 1:
+                edge = self._calculate_edge(over_prob, over_odds)
+                if edge >= self.min_edge:
+                    value_bets.append({
+                        'market': f'Over {threshold}',
+                        'selection': f'O{threshold}',
+                        'probability': over_prob,
+                        'odds': over_odds,
+                        'edge': edge,
+                        'value_score': edge * over_prob * 100
+                    })
+            
+            # Analyser Under
+            under_odds = odds.get(under_key)
+            if under_odds and under_odds > 1:
+                edge = self._calculate_edge(under_prob, under_odds)
+                if edge >= self.min_edge:
+                    value_bets.append({
+                        'market': f'Under {threshold}',
+                        'selection': f'U{threshold}',
+                        'probability': under_prob,
+                        'odds': under_odds,
+                        'edge': edge,
+                        'value_score': edge * under_prob * 100
+                    })
+        
+        return value_bets
     
     def _calculate_edge(self, probability: float, odds: float) -> float:
-        """Calcule l'edge (Expected Value)"""
-        if odds <= 1:
+        """Calcule l'edge (valeur attendue)"""
+        if odds <= 1 or probability <= 0:
             return -1
         return (probability * odds) - 1
     
     def calculate_kelly_stake(self, edge: float, odds: float, 
                              bankroll: float, fraction: float = 0.25) -> float:
-        """Calcule la mise selon le critère de Kelly fractionnaire"""
+        """Calcule la mise selon Kelly fractionnaire"""
         if edge <= 0 or odds <= 1:
             return 0.0
         
@@ -565,487 +791,226 @@ class ValueBetDetector:
         return kelly_fraction * fraction * bankroll
 
 # =============================================================================
-# GESTIONNAIRE DE PARIS
+# BET MANAGER
 # =============================================================================
 
 class BetManager:
-    """Gestionnaire professionnel de paris"""
+    """Gestionnaire de bankroll et paris"""
     
     def __init__(self, initial_bankroll: float = 10000.0):
+        self.initial_bankroll = initial_bankroll
         self.bankroll = initial_bankroll
-        self.open_bets = []
-        self.bet_history = []
+        self.bets = []
         self.performance = {
             'total_bets': 0,
-            'won_bets': 0,
-            'lost_bets': 0,
-            'void_bets': 0,
+            'won': 0,
+            'lost': 0,
+            'pending': 0,
             'total_staked': 0.0,
             'total_return': 0.0,
             'total_profit': 0.0,
             'roi': 0.0,
+            'win_rate': 0.0,
             'avg_odds': 0.0,
-            'max_drawdown': 0.0,
-            'sharpe_ratio': 0.0
+            'avg_edge': 0.0
         }
-        
+    
     def place_bet(self, match_info: Dict, bet_details: Dict, 
                   stake: float, odds: float) -> Dict:
         """Place un pari"""
-        try:
-            if stake > self.bankroll:
-                return {
-                    'success': False,
-                    'error': 'Fonds insuffisants',
-                    'available': self.bankroll,
-                    'requested': stake
-                }
-            
-            bet_id = len(self.bet_history) + 1
-            bet = {
-                'id': bet_id,
-                'timestamp': datetime.now().isoformat(),
-                'match': match_info['match'],
-                'league': match_info['league'],
-                'market': bet_details['market'],
-                'selection': bet_details['selection'],
-                'stake': stake,
-                'odds': odds,
-                'potential_win': stake * (odds - 1),
-                'potential_return': stake * odds,
-                'status': 'open',
-                'edge': bet_details.get('edge', 0),
-                'confidence': bet_details.get('confidence', 0),
-                'value_score': bet_details.get('value_score', 0)
-            }
-            
-            # Déduire la mise du bankroll
-            self.bankroll -= stake
-            self.open_bets.append(bet)
-            self.bet_history.append(bet)
-            
-            # Mettre à jour les statistiques
-            self.performance['total_bets'] += 1
-            self.performance['total_staked'] += stake
-            
-            return {
-                'success': True,
-                'bet_id': bet_id,
-                'bet': bet,
-                'remaining_bankroll': self.bankroll
-            }
-            
-        except Exception as e:
-            return {
-                'success': False,
-                'error': str(e)
-            }
+        if stake > self.bankroll:
+            return {'success': False, 'error': 'Bankroll insuffisant'}
+        
+        bet_id = len(self.bets) + 1
+        bet = {
+            'id': bet_id,
+            'timestamp': datetime.now(),
+            'match': match_info.get('match'),
+            'league': match_info.get('league'),
+            'market': bet_details.get('market'),
+            'selection': bet_details.get('selection'),
+            'stake': stake,
+            'odds': odds,
+            'probability': bet_details.get('probability'),
+            'edge': bet_details.get('edge'),
+            'potential_win': stake * (odds - 1),
+            'potential_return': stake * odds,
+            'status': 'pending',
+            'result': None,
+            'settled_at': None
+        }
+        
+        self.bankroll -= stake
+        self.bets.append(bet)
+        
+        # Mettre à jour les stats
+        self.performance['total_bets'] += 1
+        self.performance['pending'] += 1
+        self.performance['total_staked'] += stake
+        
+        return {'success': True, 'bet': bet, 'bankroll': self.bankroll}
     
     def settle_bet(self, bet_id: int, result: str) -> Dict:
-        """Règle un pari (win/loss/void)"""
-        try:
-            bet = next((b for b in self.open_bets if b['id'] == bet_id), None)
-            
-            if not bet:
-                return {'success': False, 'error': 'Pari non trouvé'}
-            
-            bet['status'] = 'settled'
-            bet['result'] = result
-            bet['settled_at'] = datetime.now().isoformat()
-            
-            # Mettre à jour le bankroll
-            if result == 'win':
-                winnings = bet['stake'] * bet['odds']
-                self.bankroll += winnings
-                self.performance['won_bets'] += 1
-                self.performance['total_return'] += winnings
-                self.performance['total_profit'] += (winnings - bet['stake'])
-                
-            elif result == 'loss':
-                self.performance['lost_bets'] += 1
-                
-            elif result == 'void':
-                # Remboursement de la mise
-                self.bankroll += bet['stake']
-                self.performance['void_bets'] += 1
-                self.performance['total_staked'] -= bet['stake']
-            
-            # Retirer du open bets
-            self.open_bets = [b for b in self.open_bets if b['id'] != bet_id]
-            
-            # Mettre à jour les métriques
-            self._update_performance_metrics()
-            
-            return {
-                'success': True,
-                'bet': bet,
-                'bankroll': self.bankroll
-            }
-            
-        except Exception as e:
-            return {'success': False, 'error': str(e)}
+        """Règle un pari"""
+        bet = next((b for b in self.bets if b['id'] == bet_id), None)
+        
+        if not bet:
+            return {'success': False, 'error': 'Pari non trouvé'}
+        
+        bet['status'] = 'settled'
+        bet['result'] = result
+        bet['settled_at'] = datetime.now()
+        
+        self.performance['pending'] -= 1
+        
+        if result == 'win':
+            winnings = bet['stake'] * bet['odds']
+            self.bankroll += winnings
+            self.performance['won'] += 1
+            self.performance['total_return'] += winnings
+            self.performance['total_profit'] += (winnings - bet['stake'])
+        
+        elif result == 'loss':
+            self.performance['lost'] += 1
+        
+        elif result == 'void':
+            # Remboursement
+            self.bankroll += bet['stake']
+            self.performance['total_staked'] -= bet['stake']
+        
+        # Recalculer les métriques
+        self._update_performance()
+        
+        return {'success': True, 'bet': bet, 'bankroll': self.bankroll}
     
-    def _update_performance_metrics(self):
+    def _update_performance(self):
         """Met à jour les métriques de performance"""
-        if self.performance['total_staked'] > 0:
-            self.performance['roi'] = (
-                self.performance['total_profit'] / 
-                self.performance['total_staked'] * 100
-            )
+        if self.performance['total_bets'] > 0:
+            self.performance['win_rate'] = (self.performance['won'] / 
+                                          (self.performance['won'] + self.performance['lost'])) * 100
+            
+            if self.performance['total_staked'] > 0:
+                self.performance['roi'] = (self.performance['total_profit'] / 
+                                         self.performance['total_staked']) * 100
         
-        # Calcul du drawdown
-        if self.bet_history:
-            running_bankroll = 10000.0  # Initial
-            peak = running_bankroll
-            max_dd = 0.0
-            
-            for bet in sorted(self.bet_history, key=lambda x: x['timestamp']):
-                if bet['status'] == 'settled':
-                    if bet['result'] == 'win':
-                        running_bankroll += bet['potential_win']
-                    elif bet['result'] == 'loss':
-                        running_bankroll -= bet['stake']
-                
-                if running_bankroll > peak:
-                    peak = running_bankroll
-                
-                dd = (peak - running_bankroll) / peak * 100
-                if dd > max_dd:
-                    max_dd = dd
-            
-            self.performance['max_drawdown'] = max_dd
+        # Calcul moyenne des cotes et edge
+        settled_bets = [b for b in self.bets if b['status'] == 'settled']
+        if settled_bets:
+            self.performance['avg_odds'] = np.mean([b['odds'] for b in settled_bets])
+            self.performance['avg_edge'] = np.mean([b.get('edge', 0) for b in settled_bets])
 
 # =============================================================================
-# INTERFACE STREAMLIT PROFESSIONNELLE
+# INTERFACE STREAMLIT
 # =============================================================================
 
-class ProfessionalBettingInterface:
-    """Interface professionnelle pour les paris en direct"""
+def setup_interface():
+    """Configure l'interface Streamlit"""
+    st.set_page_config(
+        page_title="Système de Paris Sportifs Pro",
+        page_icon="💰",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
     
-    def __init__(self):
-        self.api_config = APIConfig()
-        self.odds_client = ProfessionalOddsClient(self.api_config)
-        self.prediction_model = AdvancedPredictionModel()
-        self.value_detector = ValueBetDetector(self.prediction_model)
-        self.bet_manager = None
+    # CSS personnalisé
+    st.markdown("""
+    <style>
+    .main-title {
+        font-size: 2.8rem;
+        font-weight: 800;
+        background: linear-gradient(90deg, #FF6B6B, #4ECDC4);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-align: center;
+        margin-bottom: 0.5rem;
+    }
+    .sub-title {
+        text-align: center;
+        color: #666;
+        font-size: 1.2rem;
+        margin-bottom: 2rem;
+    }
+    .live-badge {
+        background: linear-gradient(90deg, #FF416C, #FF4B2B);
+        color: white;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: bold;
+        display: inline-block;
+        animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.7; }
+        100% { opacity: 1; }
+    }
+    .value-bet-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 15px;
+        border-radius: 10px;
+        color: white;
+        margin: 10px 0;
+        border-left: 5px solid #4CAF50;
+    }
+    .match-card {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        margin: 10px 0;
+        border: 1px solid #e9ecef;
+    }
+    .stButton>button {
+        background: linear-gradient(90deg, #1E88E5, #0D47A1);
+        color: white;
+        font-weight: bold;
+        border: none;
+        padding: 10px 24px;
+        border-radius: 8px;
+    }
+    .profit-positive { color: #4CAF50; font-weight: bold; }
+    .profit-negative { color: #f44336; font-weight: bold; }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Header
+    st.markdown('<div class="main-title">💰 SYSTÈME DE PARIS FOOTBALL PRO</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-title">Votre clé API intégrée • Value Bets en Direct • Élo Rating Avancé</div>', unsafe_allow_html=True)
+
+def main():
+    """Application principale"""
+    setup_interface()
+    
+    # Initialisation des composants
+    if 'api_client' not in st.session_state:
+        st.session_state.api_client = FootballDataClient()
+    
+    if 'elo_system' not in st.session_state:
+        st.session_state.elo_system = AdvancedEloSystem()
+    
+    if 'value_detector' not in st.session_state:
+        st.session_state.value_detector = ValueBetDetector(st.session_state.elo_system)
+    
+    if 'bet_manager' not in st.session_state:
+        st.session_state.bet_manager = None
+    
+    # Sidebar
+    with st.sidebar:
+        st.header("⚙️ CONFIGURATION")
         
-    def setup_interface(self):
-        """Configure l'interface Streamlit"""
-        st.set_page_config(
-            page_title="Système de Paris Sportifs Pro",
-            page_icon="💰",
-            layout="wide",
-            initial_sidebar_state="expanded"
-        )
-        
-        # CSS professionnel
-        st.markdown("""
-        <style>
-        .main-header {
-            font-size: 2.8rem;
-            font-weight: 800;
-            background: linear-gradient(90deg, #FF6B6B, #4ECDC4, #45B7D1);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            text-align: center;
-            margin-bottom: 0.5rem;
-            padding: 10px;
-        }
-        .sub-header {
-            text-align: center;
-            color: #666;
-            font-size: 1.2rem;
-            margin-bottom: 2rem;
-        }
-        .live-badge {
-            background: linear-gradient(90deg, #FF416C, #FF4B2B);
-            color: white;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: bold;
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.7; }
-            100% { opacity: 1; }
-        }
-        .value-bet-highlight {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 15px;
-            border-radius: 10px;
-            color: white;
-            border-left: 5px solid #4CAF50;
-            margin: 10px 0;
-        }
-        .match-card {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 10px 0;
-            border: 1px solid #e9ecef;
-            transition: all 0.3s ease;
-        }
-        .match-card:hover {
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-            transform: translateY(-2px);
-        }
-        .odds-bubble {
-            display: inline-block;
-            background: #1E88E5;
-            color: white;
-            padding: 5px 12px;
-            border-radius: 20px;
-            margin: 0 5px;
-            font-weight: bold;
-        }
-        .profit-positive {
-            color: #4CAF50;
-            font-weight: bold;
-        }
-        .profit-negative {
-            color: #f44336;
-            font-weight: bold;
-        }
-        .stButton>button {
-            background: linear-gradient(90deg, #1E88E5, #0D47A1);
-            color: white;
-            font-weight: bold;
-            border: none;
-            padding: 10px 24px;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-        }
-        .stButton>button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(30, 136, 229, 0.4);
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        # Header avec mise à jour en temps réel
-        st.markdown('<div class="main-header">💰 SYSTÈME DE PARIS SPORTIFS PROFESSIONNEL</div>', unsafe_allow_html=True)
-        st.markdown('<div class="sub-header">🎯 Value Bets en Temps Réel • IA Avancée • Gestion Bankroll Pro</div>', unsafe_allow_html=True)
-        
-        # Indicateur de connexion API
-        col1, col2, col3 = st.columns(3)
-        with col2:
-            if self.api_config.API_FOOTBALL_KEY and self.api_config.ODDS_API_KEY:
-                st.markdown('<div class="live-badge">✅ CONNECTÉ AUX BOOKMAKERS</div>', unsafe_allow_html=True)
+        # Test connexion API
+        if st.button("🔗 Tester la connexion API"):
+            if st.session_state.api_client.test_connection():
+                st.success("✅ Connexion API réussie !")
             else:
-                st.error("❌ Clés API manquantes. Configurez les secrets Streamlit.")
-    
-    def display_dashboard(self):
-        """Affiche le dashboard principal"""
-        st.header("📊 DASHBOARD PROFESSIONNEL")
+                st.error("❌ Échec connexion API")
         
-        # Métriques en temps réel
-        col1, col2, col3, col4 = st.columns(4)
+        # Bankroll
+        st.subheader("💰 BANKROLL")
         
-        with col1:
-            bankroll = self.bet_manager.bankroll if self.bet_manager else 10000
-            st.metric(
-                "💰 BANKROLL",
-                f"€{bankroll:,.2f}",
-                delta=None
-            )
-        
-        with col2:
-            if self.bet_manager:
-                roi = self.bet_manager.performance['roi']
-                st.metric("📈 ROI", f"{roi:.2f}%")
-            else:
-                st.metric("📈 ROI", "0.00%")
-        
-        with col3:
-            # Nombre de value bets détectés aujourd'hui
-            st.metric("🎯 VALUE BETS", "N/A")
-        
-        with col4:
-            # Edge moyen
-            st.metric("⚡ EDGE MOYEN", "N/A")
-        
-        # Widget de mise à jour en temps réel
-        st.subheader("🔄 MISE À JOUR EN TEMPS RÉEL")
-        
-        refresh_col1, refresh_col2 = st.columns([3, 1])
-        with refresh_col1:
-            auto_refresh = st.checkbox("Auto-refresh (30s)", value=True)
-        with refresh_col2:
-            if st.button("🔄 Rafraîchir maintenant", type="secondary"):
-                st.rerun()
-        
-        if auto_refresh:
-            time.sleep(30)
-            st.rerun()
-    
-    def display_live_matches(self):
-        """Affiche les matchs en direct"""
-        st.header("⚽ MATCHS EN DIRECT")
-        
-        try:
-            live_fixtures = self.odds_client.get_live_fixtures()
-            
-            if not live_fixtures:
-                st.info("Aucun match en cours actuellement.")
-                return
-            
-            for fixture in live_fixtures[:10]:  # Limiter à 10 matchs
-                fixture_data = fixture.get('fixture', {})
-                teams = fixture.get('teams', {})
-                goals = fixture.get('goals', {})
-                
-                with st.expander(f"🔥 {teams.get('home', {}).get('name')} vs {teams.get('away', {}).get('name')}"):
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        st.write(f"**Score:** {goals.get('home', 0)} - {goals.get('away', 0)}")
-                        st.write(f"**Statut:** {fixture_data.get('status', {}).get('long')}")
-                        st.write(f"**Temps:** {fixture_data.get('status', {}).get('elapsed')}'")
-                    
-                    with col2:
-                        # Statistiques en direct
-                        stats = self.odds_client.get_fixture_statistics(fixture_data.get('id'))
-                        if stats:
-                            st.write("**Statistiques:**")
-                            for team_stats in stats:
-                                st.write(f"{team_stats.get('team', {}).get('name')}:")
-                                for stat in team_stats.get('statistics', [])[:3]:
-                                    st.write(f"  {stat.get('type')}: {stat.get('value')}")
-                    
-                    with col3:
-                        # Cotes en direct
-                        odds = self.odds_client.get_live_odds()
-                        # Trouver les cotes pour ce match
-                        match_odds = self._find_match_odds(odds, 
-                                                          teams.get('home', {}).get('name'),
-                                                          teams.get('away', {}).get('name'))
-                        
-                        if match_odds:
-                            st.write("**Cotes en direct:**")
-                            best = match_odds.get('best_odds', {})
-                            st.write(f"1: {best.get('home', {}).get('odds', 'N/A')}")
-                            st.write(f"X: {best.get('draw', {}).get('odds', 'N/A')}")
-                            st.write(f"2: {best.get('away', {}).get('odds', 'N/A')}")
-                        
-                        # Bouton pour analyser ce match
-                        if st.button("📊 Analyser ce match", key=f"analyze_{fixture_data.get('id')}"):
-                            self.analyze_specific_match(fixture)
-        
-        except Exception as e:
-            st.error(f"Erreur chargement matchs en direct: {str(e)}")
-    
-    def display_upcoming_matches(self):
-        """Affiche les matchs à venir"""
-        st.header("📅 MATCHS À VENIR")
-        
-        # Sélection de la ligue
-        leagues = {
-            "Premier League": 39,
-            "La Liga": 140,
-            "Serie A": 135,
-            "Bundesliga": 78,
-            "Ligue 1": 61,
-            "Champions League": 2
-        }
-        
-        selected_league = st.selectbox("Sélectionnez une ligue", list(leagues.keys()))
-        league_id = leagues[selected_league]
-        
-        # Période
-        col1, col2 = st.columns(2)
-        with col1:
-            from_date = st.date_input("Du", value=date.today())
-        with col2:
-            to_date = st.date_input("Au", value=date.today() + timedelta(days=7))
-        
-        if st.button("🔍 Charger les matchs", type="primary"):
-            with st.spinner("Chargement des matchs et cotes..."):
-                try:
-                    # Récupérer les matchs
-                    fixtures = self.odds_client.get_fixtures(
-                        league_id, 2024,  # Saison actuelle
-                        from_date.strftime('%Y-%m-%d'),
-                        to_date.strftime('%Y-%m-%d')
-                    )
-                    
-                    # Récupérer les cotes
-                    odds_data = self.odds_client.get_live_odds()
-                    
-                    # Afficher les matchs
-                    for fixture in fixtures[:20]:  # Limiter à 20 matchs
-                        self._display_match_with_analysis(fixture, odds_data)
-                        
-                except Exception as e:
-                    st.error(f"Erreur: {str(e)}")
-    
-    def display_value_bets(self):
-        """Affiche les value bets détectés"""
-        st.header("🎯 VALUE BETS DÉTECTÉS")
-        
-        # Paramètres de détection
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            min_edge = st.slider("Edge minimum (%)", 1.0, 10.0, 2.0, 0.5)
-            self.value_detector.min_edge = min_edge / 100
-        
-        with col2:
-            min_confidence = st.slider("Confiance minimum (%)", 50, 95, 65, 5)
-            self.value_detector.min_confidence = min_confidence / 100
-        
-        with col3:
-            bankroll_percent = st.slider("Max % bankroll", 1, 10, 2, 1)
-        
-        if st.button("🔍 Analyser les matchs disponibles", type="primary"):
-            with st.spinner("Analyse en cours..."):
-                try:
-                    # Récupérer les données
-                    fixtures = self.odds_client.get_fixtures(
-                        39, 2024,  # Premier League
-                        date.today().strftime('%Y-%m-%d'),
-                        (date.today() + timedelta(days=3)).strftime('%Y-%m-%d')
-                    )
-                    
-                    odds_data = self.odds_client.get_live_odds()
-                    
-                    # Analyser chaque match
-                    value_bets_found = []
-                    
-                    for fixture in fixtures:
-                        match_data = self._prepare_match_data(fixture)
-                        match_odds = self._find_match_odds(odds_data, 
-                                                          match_data['home_team'],
-                                                          match_data['away_team'])
-                        
-                        if match_odds:
-                            analysis = self.value_detector.analyze_match(match_data, match_odds)
-                            
-                            if analysis:
-                                value_bets_found.append(analysis)
-                    
-                    # Afficher les résultats
-                    if value_bets_found:
-                        st.success(f"✅ {len(value_bets_found)} value bets détectés!")
-                        
-                        for bet in sorted(value_bets_found, 
-                                         key=lambda x: x['value_bet']['value_score'], 
-                                         reverse=True):
-                            self._display_value_bet(bet, bankroll_percent)
-                    else:
-                        st.info("Aucun value bet détecté avec les paramètres actuels.")
-                        
-                except Exception as e:
-                    st.error(f"Erreur analyse: {str(e)}")
-    
-    def display_betting_interface(self):
-        """Interface de placement de paris"""
-        st.header("💰 PLACER UN PARI")
-        
-        if not self.bet_manager:
+        if st.session_state.bet_manager is None:
             initial_bankroll = st.number_input(
-                "💰 Bankroll initial (€)",
+                "Bankroll initial (€)",
                 min_value=100.0,
                 max_value=1000000.0,
                 value=10000.0,
@@ -1053,416 +1018,621 @@ class ProfessionalBettingInterface:
             )
             
             if st.button("Initialiser le bankroll", type="primary"):
-                self.bet_manager = BetManager(initial_bankroll)
+                st.session_state.bet_manager = BetManager(initial_bankroll)
                 st.success(f"Bankroll initialisé: €{initial_bankroll:,.2f}")
                 st.rerun()
-            
-            return
+        else:
+            st.metric("Bankroll actuel", f"€{st.session_state.bet_manager.bankroll:,.2f}")
+            st.metric("Profit total", f"€{st.session_state.bet_manager.performance['total_profit']:,.2f}")
         
-        # Interface de pari
-        col1, col2 = st.columns(2)
+        # Paramètres
+        st.subheader("🎯 PARAMÈTRES")
         
-        with col1:
-            st.subheader("📋 Pari en cours")
-            
-            match_selection = st.selectbox(
-                "Sélectionner un match",
-                ["Manchester City vs Liverpool", "Real Madrid vs Barcelona", 
-                 "Bayern Munich vs Dortmund"]
-            )
-            
-            market = st.selectbox(
-                "Marché",
-                ["1X2", "Double Chance", "Over/Under 2.5", "Both Teams to Score"]
-            )
-            
-            selection = st.selectbox(
-                "Sélection",
-                ["1", "X", "2", "Over", "Under", "Yes", "No"]
-            )
+        min_edge = st.slider("Edge minimum (%)", 1.0, 10.0, 2.0, 0.5)
+        st.session_state.value_detector.min_edge = min_edge / 100
         
-        with col2:
-            st.subheader("📊 Détails du pari")
-            
-            odds = st.number_input("Cote", min_value=1.01, max_value=100.0, value=2.0, step=0.01)
-            
-            stake_options = ["Montant fixe", "% du bankroll", "Kelly"]
-            stake_method = st.selectbox("Méthode de mise", stake_options)
-            
-            if stake_method == "Montant fixe":
-                stake = st.number_input("Mise (€)", min_value=1.0, 
-                                       max_value=self.bet_manager.bankroll, 
-                                       value=100.0, step=10.0)
-            elif stake_method == "% du bankroll":
-                percent = st.slider("Pourcentage", 0.5, 10.0, 2.0, 0.5)
-                stake = self.bet_manager.bankroll * (percent / 100)
-                st.write(f"Mise: €{stake:,.2f} ({percent}%)")
-            else:  # Kelly
-                edge = st.number_input("Edge estimé (%)", min_value=0.1, max_value=50.0, 
-                                      value=5.0, step=0.5) / 100
-                kelly_fraction = st.slider("Fraction de Kelly", 0.1, 1.0, 0.25, 0.05)
-                stake = self.value_detector.calculate_kelly_stake(
-                    edge, odds, self.bet_manager.bankroll, kelly_fraction
-                )
-                st.write(f"Mise Kelly: €{stake:,.2f}")
-            
-            potential_return = stake * odds
-            potential_profit = potential_return - stake
-            
-            st.metric("Retour potentiel", f"€{potential_return:,.2f}")
-            st.metric("Profit potentiel", f"€{potential_profit:,.2f}")
-            
-            if st.button("✅ Placer le pari", type="primary"):
-                bet_details = {
-                    'market': market,
-                    'selection': selection,
-                    'edge': edge if stake_method == "Kelly" else 0
-                }
-                
-                match_info = {
-                    'match': match_selection,
-                    'league': 'Premier League'
-                }
-                
-                result = self.bet_manager.place_bet(match_info, bet_details, stake, odds)
-                
-                if result['success']:
-                    st.success(f"Pari placé! ID: {result['bet_id']}")
-                    st.write(f"Bankroll restant: €{result['remaining_bankroll']:,.2f}")
-                else:
-                    st.error(f"Erreur: {result.get('error', 'Inconnue')}")
+        min_confidence = st.slider("Confiance minimum (%)", 50, 95, 65, 5)
+        st.session_state.value_detector.min_confidence = min_confidence / 100
+        
+        kelly_fraction = st.slider("Fraction de Kelly", 0.1, 1.0, 0.25, 0.05)
+        
+        # Info
+        st.divider()
+        st.info(f"""
+        **📊 VOTRE SYSTÈME**
+        - Clé API: ✅ Active
+        - Mode: Professionnel
+        - Dernière MAJ: {datetime.now().strftime('%H:%M:%S')}
+        """)
     
-    def display_performance(self):
-        """Affiche les performances"""
-        st.header("📈 PERFORMANCES")
+    # Onglets principaux
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "🏠 Dashboard", 
+        "🎯 Value Bets", 
+        "⚽ Matchs en Direct", 
+        "💰 Paris", 
+        "📈 Performances"
+    ])
+    
+    with tab1:
+        display_dashboard()
+    
+    with tab2:
+        display_value_bets()
+    
+    with tab3:
+        display_live_matches()
+    
+    with tab4:
+        display_betting_interface()
+    
+    with tab5:
+        display_performance()
+
+def display_dashboard():
+    """Affiche le dashboard principal"""
+    st.header("📊 DASHBOARD")
+    
+    # Métriques
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.session_state.bet_manager:
+            bankroll = st.session_state.bet_manager.bankroll
+            initial = st.session_state.bet_manager.initial_bankroll
+            profit = bankroll - initial
+            delta = f"€{profit:+,.0f}"
+            st.metric("💰 BANKROLL", f"€{bankroll:,.0f}", delta)
+        else:
+            st.metric("💰 BANKROLL", "€10,000", "Non initialisé")
+    
+    with col2:
+        if st.session_state.bet_manager:
+            roi = st.session_state.bet_manager.performance['roi']
+            st.metric("📈 ROI", f"{roi:.1f}%")
+        else:
+            st.metric("📈 ROI", "0.0%")
+    
+    with col3:
+        # Nombre de matchs aujourd'hui
+        st.metric("📅 MATCHS AJD", "N/A")
+    
+    with col4:
+        # Edge moyen détecté
+        st.metric("⚡ EDGE MOYEN", "N/A")
+    
+    # Boutons d'action
+    st.subheader("🚀 ACTIONS RAPIDES")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🔍 Scanner les value bets", type="primary"):
+            st.session_state.scan_value_bets = True
+            st.rerun()
+    
+    with col2:
+        if st.button("🔄 Rafraîchir les données"):
+            st.session_state.api_client.cache.clear()
+            st.rerun()
+    
+    with col3:
+        if st.button("📊 Entraîner le modèle Élo"):
+            with st.spinner("Entraînement en cours..."):
+                # Charger des matchs historiques
+                leagues = st.session_state.api_client.get_leagues()
+                if leagues:
+                    premier_league = next((l for l in leagues if "Premier League" in l['name']), None)
+                    if premier_league:
+                        fixtures = st.session_state.api_client.get_fixtures(
+                            premier_league['id'],
+                            premier_league['season'],
+                            last=50
+                        )
+                        st.session_state.elo_system.train_from_fixtures(fixtures)
+                        st.success(f"Modèle entraîné sur {len(fixtures)} matchs !")
+    
+    # Graphique de performance
+    st.subheader("📈 ÉVOLUTION BANKROLL")
+    
+    if st.session_state.bet_manager and len(st.session_state.bet_manager.bets) > 0:
+        # Créer un graphique d'évolution
+        bet_history = sorted(st.session_state.bet_manager.bets, key=lambda x: x['timestamp'])
         
-        if not self.bet_manager:
-            st.info("Initialisez d'abord le bankroll pour voir les performances.")
-            return
+        bankroll_history = [st.session_state.bet_manager.initial_bankroll]
+        current = st.session_state.bet_manager.initial_bankroll
+        dates = [datetime.now().replace(hour=0, minute=0, second=0)]
         
-        perf = self.bet_manager.performance
-        
-        # Métriques principales
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total paris", perf['total_bets'])
-        
-        with col2:
-            win_rate = (perf['won_bets'] / perf['total_bets'] * 100) if perf['total_bets'] > 0 else 0
-            st.metric("Taux de réussite", f"{win_rate:.1f}%")
-        
-        with col3:
-            st.metric("ROI total", f"{perf['roi']:.2f}%")
-        
-        with col4:
-            st.metric("Profit total", f"€{perf['total_profit']:,.2f}")
-        
-        # Graphique d'évolution du bankroll
-        st.subheader("📊 Évolution du bankroll")
-        
-        if self.bet_manager.bet_history:
-            # Simuler l'évolution
-            bankroll_history = [10000.0]  # Initial
-            current = 10000.0
-            
-            for bet in sorted(self.bet_manager.bet_history, key=lambda x: x['timestamp']):
-                if bet['status'] == 'settled':
-                    if bet['result'] == 'win':
-                        current += bet['potential_win']
-                    elif bet['result'] == 'loss':
-                        current -= bet['stake']
-                    elif bet['result'] == 'void':
-                        current += bet['stake']
-                
+        for bet in bet_history:
+            if bet['status'] == 'settled':
+                if bet['result'] == 'win':
+                    current += bet['potential_win']
+                elif bet['result'] == 'loss':
+                    current -= bet['stake']
                 bankroll_history.append(current)
-            
-            # Créer le graphique
+                dates.append(bet['timestamp'])
+        
+        if len(bankroll_history) > 1:
             fig = go.Figure()
-            
             fig.add_trace(go.Scatter(
-                x=list(range(len(bankroll_history))),
+                x=dates,
                 y=bankroll_history,
                 mode='lines+markers',
                 name='Bankroll',
-                line=dict(color='#1E88E5', width=3),
-                marker=dict(size=6)
+                line=dict(color='#1E88E5', width=3)
             ))
             
             fig.update_layout(
                 title='Évolution du Bankroll',
-                xaxis_title='Nombre de paris',
+                xaxis_title='Date',
                 yaxis_title='Bankroll (€)',
-                template='plotly_white',
-                hovermode='x unified'
+                template='plotly_white'
             )
             
             st.plotly_chart(fig, use_container_width=True)
-        
-        # Détails des paris
-        st.subheader("📋 Historique des paris")
-        
-        if self.bet_manager.bet_history:
-            history_df = pd.DataFrame(self.bet_manager.bet_history)
-            
-            # Formater les colonnes
-            display_cols = ['id', 'match', 'market', 'selection', 'stake', 
-                          'odds', 'status', 'result', 'edge', 'value_score']
-            
-            available_cols = [col for col in display_cols if col in history_df.columns]
-            
-            st.dataframe(
-                history_df[available_cols],
-                use_container_width=True,
-                hide_index=True
-            )
-        else:
-            st.info("Aucun pari dans l'historique.")
+    else:
+        st.info("Aucun pari enregistré. Les graphiques apparaîtront ici.")
+
+def display_value_bets():
+    """Affiche les value bets détectés"""
+    st.header("🎯 VALUE BETS")
     
-    def _prepare_match_data(self, fixture: Dict) -> Dict:
-        """Prépare les données d'un match pour l'analyse"""
-        fixture_data = fixture.get('fixture', {})
-        teams = fixture.get('teams', {})
-        goals = fixture.get('goals', {})
-        
-        return {
-            'fixture_id': fixture_data.get('id'),
-            'home_team': teams.get('home', {}).get('name'),
-            'away_team': teams.get('away', {}).get('name'),
-            'date': fixture_data.get('date'),
-            'status': fixture_data.get('status', {}).get('short'),
-            'home_score': goals.get('home'),
-            'away_score': goals.get('away'),
-            'league': fixture.get('league', {}).get('name'),
-            'home_form': 0.5,  # À implémenter avec données historiques
-            'away_form': 0.5,
-            'home_goals_avg': 1.5,  # À implémenter
-            'away_goals_avg': 1.5,
-            'home_conceded_avg': 1.2,
-            'away_conceded_avg': 1.2,
-            'is_weekend': datetime.fromisoformat(fixture_data.get('date').replace('Z', '+00:00')).weekday() >= 5,
-            'is_derby': False  # À implémenter
-        }
+    # Sélection de la ligue
+    st.subheader("1. Sélectionnez une ligue")
     
-    def _find_match_odds(self, odds_list: List[Dict], home_team: str, away_team: str) -> Optional[Dict]:
-        """Trouve les cotes d'un match spécifique"""
-        for odds in odds_list:
-            if (home_team.lower() in odds.get('home_team', '').lower() and 
-                away_team.lower() in odds.get('away_team', '').lower()):
-                return odds
-        return None
+    leagues = st.session_state.api_client.get_leagues()
     
-    def _display_match_with_analysis(self, fixture: Dict, odds_data: List[Dict]):
-        """Affiche un match avec analyse"""
-        match_data = self._prepare_match_data(fixture)
+    if not leagues:
+        st.error("Impossible de charger les ligues. Vérifiez votre connexion API.")
+        return
+    
+    # Filtrer les ligues majeures
+    major_leagues = [
+        "Premier League", "La Liga", "Serie A", 
+        "Bundesliga", "Ligue 1", "Champions League"
+    ]
+    
+    filtered_leagues = [l for l in leagues if any(ml in l['name'] for ml in major_leagues)]
+    
+    league_options = {f"{l['name']} ({l['country']})": l for l in filtered_leagues}
+    
+    selected_league_name = st.selectbox(
+        "Choisir une ligue",
+        list(league_options.keys()),
+        index=0 if league_options else None
+    )
+    
+    if selected_league_name:
+        selected_league = league_options[selected_league_name]
         
-        with st.container():
-            col1, col2, col3 = st.columns([2, 1, 1])
-            
-            with col1:
-                st.write(f"**{match_data['home_team']} vs {match_data['away_team']}**")
-                st.write(f"*{match_data['league']} • {match_data['date'][:10]}*")
-            
-            with col2:
-                # Trouver les cotes
-                match_odds = self._find_match_odds(odds_data, 
-                                                  match_data['home_team'],
-                                                  match_data['away_team'])
-                
-                if match_odds:
-                    best = match_odds.get('best_odds', {})
-                    st.write("**Meilleures cotes:**")
-                    st.write(f"1: {best.get('home', {}).get('odds', 'N/A')}")
-                    st.write(f"X: {best.get('draw', {}).get('odds', 'N/A')}")
-                    st.write(f"2: {best.get('away', {}).get('odds', 'N/A')}")
-            
-            with col3:
-                if st.button("🎯 Analyser", key=f"analyze_{match_data['fixture_id']}"):
-                    if match_odds:
-                        analysis = self.value_detector.analyze_match(match_data, match_odds)
+        # Période
+        col1, col2 = st.columns(2)
+        with col1:
+            days_ahead = st.slider("Jours à venir", 1, 14, 3)
+        with col2:
+            max_matches = st.slider("Max matchs", 10, 100, 30)
+        
+        # Scanner les value bets
+        if st.button("🔍 Scanner cette ligue", type="primary"):
+            with st.spinner(f"Analyse de {selected_league['name']}..."):
+                try:
+                    # Récupérer les matchs
+                    from_date = date.today().strftime('%Y-%m-%d')
+                    to_date = (date.today() + timedelta(days=days_ahead)).strftime('%Y-%m-%d')
+                    
+                    fixtures = st.session_state.api_client.get_fixtures(
+                        selected_league['id'],
+                        selected_league['season'],
+                        from_date=from_date,
+                        to_date=to_date
+                    )
+                    
+                    if not fixtures:
+                        st.warning(f"Aucun match trouvé pour {selected_league['name']}")
+                        return
+                    
+                    # Limiter le nombre
+                    fixtures = fixtures[:max_matches]
+                    
+                    # Analyser chaque match
+                    value_bets_found = []
+                    
+                    for fixture in fixtures:
+                        # Récupérer les cotes
+                        odds_data = st.session_state.api_client.get_odds(fixture['fixture_id'])
                         
-                        if analysis:
-                            st.success(f"Edge: {analysis['value_bet']['edge']*100:.1f}%")
-                            st.write(f"Value Score: {analysis['value_bet']['value_score']:.1f}")
-                        else:
-                            st.info("Pas de value bet détecté")
-            
-            st.divider()
+                        # Analyser
+                        analysis = st.session_state.value_detector.analyze_fixture(fixture, odds_data)
+                        
+                        if analysis and analysis['value_bets']:
+                            value_bets_found.append(analysis)
+                    
+                    # Afficher les résultats
+                    if value_bets_found:
+                        st.success(f"✅ {len(value_bets_found)} value bets détectés !")
+                        
+                        for analysis in sorted(value_bets_found, 
+                                             key=lambda x: max([b['value_score'] for b in x['value_bets']], default=0), 
+                                             reverse=True):
+                            
+                            with st.expander(f"🎯 {analysis['match']} - {len(analysis['value_bets'])} opportunités"):
+                                display_match_analysis(analysis)
+                    
+                    else:
+                        st.info("Aucun value bet détecté avec les paramètres actuels.")
+                        
+                except Exception as e:
+                    st.error(f"Erreur lors de l'analyse: {str(e)}")
+
+def display_match_analysis(analysis: Dict):
+    """Affiche l'analyse détaillée d'un match"""
+    st.write(f"**Ligue:** {analysis['league']}")
+    st.write(f"**Date:** {analysis['date'][:10]} {analysis['date'][11:16]}")
     
-    def _display_value_bet(self, analysis: Dict, bankroll_percent: float):
-        """Affiche un value bet détecté"""
-        with st.container():
-            st.markdown(f"""
-            <div class="value-bet-highlight">
-                <h4>🎯 {analysis['match']}</h4>
-                <p><strong>Ligue:</strong> {analysis['league']} • 
-                <strong>Date:</strong> {analysis['date'][:10]}</p>
-            </div>
-            """, unsafe_allow_html=True)
+    # Prédiction
+    pred = analysis['prediction']
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("1", f"{pred['home_win']*100:.1f}%", 
+                 f"Elo: {pred['home_elo']:.0f}")
+    
+    with col2:
+        st.metric("N", f"{pred['draw']*100:.1f}%")
+    
+    with col3:
+        st.metric("2", f"{pred['away_win']*100:.1f}%",
+                 f"Elo: {pred['away_elo']:.0f}")
+    
+    st.write(f"**Confiance:** {pred['confidence']*100:.1f}%")
+    
+    # Value bets
+    st.subheader("💰 Value Bets détectés")
+    
+    for value_bet in sorted(analysis['value_bets'], key=lambda x: x['value_score'], reverse=True):
+        st.markdown(f"""
+        <div class="value-bet-card">
+            <h4>🎯 {value_bet['market']} - {value_bet['selection']}</h4>
+            <p><strong>Edge:</strong> {value_bet['edge']*100:.2f}% • 
+            <strong>Cote:</strong> {value_bet['odds']:.2f} • 
+            <strong>Score:</strong> {value_bet['value_score']:.1f}</p>
+            <p>Probabilité modèle: {value_bet['probability']*100:.1f}% • 
+            Probabilité implicite: {value_bet['implied_prob']*100:.1f}%</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Calcul de la mise Kelly
+        if st.session_state.bet_manager:
+            bankroll = st.session_state.bet_manager.bankroll
+            kelly_stake = st.session_state.value_detector.calculate_kelly_stake(
+                value_bet['edge'],
+                value_bet['odds'],
+                bankroll,
+                fraction=0.25
+            )
             
-            value_bet = analysis['value_bet']
+            if kelly_stake > 0:
+                st.info(f"**Mise Kelly recommandée:** €{kelly_stake:,.2f} ({(kelly_stake/bankroll*100):.1f}% du bankroll)")
+                
+                # Bouton pour placer le pari
+                if st.button(f"📝 Parier {value_bet['selection']} @ {value_bet['odds']:.2f}", 
+                           key=f"bet_{analysis['fixture_id']}_{value_bet['market']}"):
+                    
+                    match_info = {
+                        'match': analysis['match'],
+                        'league': analysis['league']
+                    }
+                    
+                    bet_details = {
+                        'market': value_bet['market'],
+                        'selection': value_bet['selection'],
+                        'probability': value_bet['probability'],
+                        'edge': value_bet['edge']
+                    }
+                    
+                    result = st.session_state.bet_manager.place_bet(
+                        match_info, bet_details, kelly_stake, value_bet['odds']
+                    )
+                    
+                    if result['success']:
+                        st.success(f"✅ Pari placé ! Mise: €{kelly_stake:,.2f}")
+                    else:
+                        st.error(f"❌ Erreur: {result.get('error')}")
+
+def display_live_matches():
+    """Affiche les matchs en direct"""
+    st.header("⚽ MATCHS EN DIRECT")
+    
+    if st.button("🔄 Actualiser les matchs en direct"):
+        st.session_state.api_client.cache.clear()
+    
+    with st.spinner("Chargement des matchs en direct..."):
+        live_matches = st.session_state.api_client.get_live_fixtures()
+        
+        if not live_matches:
+            st.info("Aucun match en cours actuellement.")
+            return
+        
+        st.success(f"📡 {len(live_matches)} match(s) en direct")
+        
+        for match in live_matches:
+            with st.expander(f"🔥 {match['home_name']} {match['home_score']} - {match['away_score']} {match['away_name']}"):
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.write(f"**Statut:** {match['status'].get('long', 'En cours')}")
+                    st.write(f"**Temps:** {match['elapsed']}'")
+                    
+                    # Prédiction
+                    prediction = st.session_state.elo_system.predict_match(
+                        match['home_id'], match['away_id']
+                    )
+                    
+                    st.write("**Prédiction:**")
+                    st.write(f"1: {prediction['home_win']*100:.1f}%")
+                    st.write(f"N: {prediction['draw']*100:.1f}%")
+                    st.write(f"2: {prediction['away_win']*100:.1f}%")
+                
+                with col2:
+                    # Événements
+                    events = st.session_state.api_client.get_fixture_events(match['fixture_id'])
+                    if events:
+                        st.write("**Événements récents:**")
+                        for event in events[-5:]:  # 5 derniers événements
+                            time = event.get('time', {}).get('elapsed', '')
+                            type_ = event.get('type', '')
+                            team = event.get('team', {}).get('name', '')
+                            player = event.get('player', {}).get('name', '')
+                            
+                            if type_ == 'Goal':
+                                st.write(f"⚽ {time}' - {player} ({team})")
+                            elif type_ == 'Card':
+                                card = event.get('detail', '')
+                                st.write(f"🟨 {time}' - {player} ({team}) - {card}")
+                
+                with col3:
+                    # Statistiques
+                    stats = st.session_state.api_client.get_fixture_statistics(match['fixture_id'])
+                    if stats:
+                        st.write("**Statistiques:**")
+                        for team_stats in stats:
+                            team_name = team_stats.get('team', {}).get('name', '')
+                            st.write(f"**{team_name}:**")
+                            
+                            for stat in team_stats.get('statistics', [])[:3]:
+                                st.write(f"{stat.get('type')}: {stat.get('value')}")
+
+def display_betting_interface():
+    """Interface de placement de paris"""
+    st.header("💰 INTERFACE DE PARIS")
+    
+    if st.session_state.bet_manager is None:
+        st.warning("Veuillez d'abord initialiser le bankroll dans la sidebar.")
+        return
+    
+    # Interface de pari manuel
+    st.subheader("📝 Pari Manuel")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        match_name = st.text_input("Match", "Manchester City vs Liverpool")
+        league = st.text_input("Ligue", "Premier League")
+        market = st.selectbox("Marché", ["1X2", "Double Chance", "Over/Under 2.5"])
+        selection = st.selectbox("Sélection", ["1", "X", "2", "Over", "Under"])
+    
+    with col2:
+        odds = st.number_input("Cote", min_value=1.01, max_value=100.0, value=2.0, step=0.01)
+        
+        stake_method = st.selectbox("Méthode de mise", 
+                                   ["Montant fixe", "% du bankroll", "Kelly personnalisé"])
+        
+        if stake_method == "Montant fixe":
+            stake = st.number_input("Mise (€)", min_value=1.0, 
+                                   max_value=st.session_state.bet_manager.bankroll, 
+                                   value=100.0, step=10.0)
+        elif stake_method == "% du bankroll":
+            percent = st.slider("Pourcentage", 0.5, 10.0, 2.0, 0.5)
+            stake = st.session_state.bet_manager.bankroll * (percent / 100)
+            st.write(f"**Mise:** €{stake:,.2f} ({percent}%)")
+        else:
+            edge = st.number_input("Edge estimé (%)", min_value=0.1, max_value=50.0, 
+                                  value=5.0, step=0.5) / 100
+            kelly_fraction = st.slider("Fraction de Kelly", 0.1, 1.0, 0.25, 0.05)
+            stake = st.session_state.value_detector.calculate_kelly_stake(
+                edge, odds, st.session_state.bet_manager.bankroll, kelly_fraction
+            )
+            st.write(f"**Mise Kelly:** €{stake:,.2f}")
+    
+    potential_return = stake * odds
+    potential_profit = potential_return - stake
+    
+    st.metric("💰 Retour potentiel", f"€{potential_return:,.2f}")
+    st.metric("📈 Profit potentiel", f"€{potential_profit:,.2f}")
+    
+    if st.button("✅ Placer le pari", type="primary"):
+        match_info = {
+            'match': match_name,
+            'league': league
+        }
+        
+        bet_details = {
+            'market': market,
+            'selection': selection,
+            'probability': 0.5,  # À estimer
+            'edge': edge if stake_method == "Kelly personnalisé" else 0
+        }
+        
+        result = st.session_state.bet_manager.place_bet(match_info, bet_details, stake, odds)
+        
+        if result['success']:
+            st.success(f"""
+            ✅ Pari placé avec succès !
+            - ID: {result['bet']['id']}
+            - Mise: €{stake:,.2f}
+            - Bankroll restant: €{result['bankroll']:,.2f}
+            """)
+            st.rerun()
+        else:
+            st.error(f"❌ Erreur: {result.get('error')}")
+    
+    # Paris ouverts
+    st.subheader("📋 Paris en cours")
+    
+    open_bets = [b for b in st.session_state.bet_manager.bets if b['status'] == 'pending']
+    
+    if open_bets:
+        for bet in open_bets:
+            with st.container():
+                col1, col2, col3 = st.columns([3, 1, 1])
+                with col1:
+                    st.write(f"**{bet['match']}**")
+                    st.write(f"{bet['market']} - {bet['selection']} @ {bet['odds']:.2f}")
+                with col2:
+                    st.write(f"**Mise:** €{bet['stake']:,.2f}")
+                with col3:
+                    # Options pour régler le pari
+                    result_col1, result_col2, result_col3 = st.columns(3)
+                    with result_col1:
+                        if st.button("✅", key=f"win_{bet['id']}"):
+                            st.session_state.bet_manager.settle_bet(bet['id'], 'win')
+                            st.rerun()
+                    with result_col2:
+                        if st.button("❌", key=f"loss_{bet['id']}"):
+                            st.session_state.bet_manager.settle_bet(bet['id'], 'loss')
+                            st.rerun()
+                    with result_col3:
+                        if st.button("↩️", key=f"void_{bet['id']}"):
+                            st.session_state.bet_manager.settle_bet(bet['id'], 'void')
+                            st.rerun()
+                st.divider()
+    else:
+        st.info("Aucun pari en cours.")
+
+def display_performance():
+    """Affiche les performances"""
+    st.header("📈 PERFORMANCES")
+    
+    if st.session_state.bet_manager is None:
+        st.warning("Veuillez initialiser le bankroll pour voir les performances.")
+        return
+    
+    perf = st.session_state.bet_manager.performance
+    
+    # Métriques principales
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Paris", perf['total_bets'])
+        st.metric("En cours", perf['pending'])
+    
+    with col2:
+        st.metric("Gagnés", perf['won'])
+        st.metric("Perdus", perf['lost'])
+    
+    with col3:
+        win_rate = perf['win_rate']
+        st.metric("Taux Réussite", f"{win_rate:.1f}%")
+        st.metric("ROI", f"{perf['roi']:.1f}%")
+    
+    with col4:
+        st.metric("Mise Totale", f"€{perf['total_staked']:,.0f}")
+        st.metric("Profit Total", f"€{perf['total_profit']:,.0f}")
+    
+    # Graphiques
+    st.subheader("📊 Graphiques de Performance")
+    
+    if len(st.session_state.bet_manager.bets) > 0:
+        # Évolution du bankroll
+        bet_history = sorted([b for b in st.session_state.bet_manager.bets if b['status'] == 'settled'], 
+                           key=lambda x: x['timestamp'])
+        
+        if bet_history:
+            bankroll_history = [st.session_state.bet_manager.initial_bankroll]
+            current = st.session_state.bet_manager.initial_bankroll
+            dates = [bet_history[0]['timestamp'].replace(hour=0, minute=0, second=0)]
             
-            col1, col2, col3 = st.columns(3)
+            for bet in bet_history:
+                if bet['result'] == 'win':
+                    current += bet['potential_win']
+                elif bet['result'] == 'loss':
+                    current -= bet['stake']
+                bankroll_history.append(current)
+                dates.append(bet['timestamp'])
             
-            with col1:
-                st.metric("📈 Edge", f"{value_bet['edge']*100:.2f}%")
-                st.metric("🎯 Value Score", f"{value_bet['value_score']:.1f}")
+            fig1 = go.Figure()
+            fig1.add_trace(go.Scatter(
+                x=dates, y=bankroll_history,
+                mode='lines+markers',
+                name='Bankroll',
+                line=dict(color='#1E88E5', width=3)
+            ))
             
-            with col2:
-                st.write(f"**Marché:** {value_bet['market']}")
-                st.write(f"**Sélection:** {value_bet['selection']}")
-                st.write(f"**Bookmaker:** {value_bet.get('bookmaker', 'Multiple')}")
+            fig1.update_layout(
+                title='Évolution du Bankroll',
+                xaxis_title='Date',
+                yaxis_title='Bankroll (€)',
+                template='plotly_white'
+            )
             
-            with col3:
-                st.write(f"**Probabilité modèle:** {value_bet['probability']*100:.1f}%")
-                st.write(f"**Cote:** {value_bet['odds']:.2f}")
-                st.write(f"**Probabilité implicite:** {value_bet['implied_prob']*100:.1f}%")
+            st.plotly_chart(fig1, use_container_width=True)
             
-            # Calcul de la mise Kelly
-            if self.bet_manager:
-                kelly_stake = self.value_detector.calculate_kelly_stake(
-                    value_bet['edge'],
-                    value_bet['odds'],
-                    self.bet_manager.bankroll,
-                    fraction=0.25
+            # Distribution des gains
+            profits = []
+            for bet in bet_history:
+                if bet['result'] == 'win':
+                    profits.append(bet['potential_win'] - bet['stake'])
+                else:
+                    profits.append(-bet['stake'])
+            
+            if profits:
+                fig2 = px.histogram(
+                    x=profits,
+                    nbins=20,
+                    title='Distribution des Profits/Perte par Pari',
+                    labels={'x': 'Profit (€)', 'y': 'Nombre de Paris'}
                 )
                 
-                max_stake = self.bet_manager.bankroll * (bankroll_percent / 100)
-                recommended_stake = min(kelly_stake, max_stake)
+                fig2.update_layout(
+                    template='plotly_white',
+                    showlegend=False
+                )
                 
-                st.info(f"""
-                **💰 Mise recommandée:**
-                - Kelly (25%): €{kelly_stake:,.2f}
-                - Max {bankroll_percent}% bankroll: €{max_stake:,.2f}
-                - **Recommandé: €{recommended_stake:,.2f}**
-                """)
-            
-            st.divider()
+                st.plotly_chart(fig2, use_container_width=True)
     
-    def analyze_specific_match(self, fixture: Dict):
-        """Analyse un match spécifique en détail"""
-        st.subheader("📊 Analyse détaillée")
-        
-        match_data = self._prepare_match_data(fixture)
-        odds_data = self.odds_client.get_live_odds()
-        match_odds = self._find_match_odds(odds_data, 
-                                          match_data['home_team'],
-                                          match_data['away_team'])
-        
-        if match_odds:
-            analysis = self.value_detector.analyze_match(match_data, match_odds)
-            
-            if analysis:
-                self._display_value_bet(analysis, 2)
-            else:
-                st.info("Aucun value bet détecté pour ce match.")
-        else:
-            st.warning("Cotes non disponibles pour ce match.")
-
-# =============================================================================
-# APPLICATION PRINCIPALE
-# =============================================================================
-
-def main():
-    """Fonction principale de l'application"""
+    # Détails des paris
+    st.subheader("📋 Historique détaillé")
     
-    # Initialisation
-    app = ProfessionalBettingInterface()
-    app.setup_interface()
-    
-    # Vérification des clés API
-    if not app.api_config.API_FOOTBALL_KEY or not app.api_config.ODDS_API_KEY:
-        st.error("""
-        ⚠️ **CLÉS API REQUISES**
+    if st.session_state.bet_manager.bets:
+        history_data = []
         
-        Pour utiliser cette application, vous devez configurer:
+        for bet in st.session_state.bet_manager.bets:
+            history_data.append({
+                'ID': bet['id'],
+                'Date': bet['timestamp'].strftime('%Y-%m-%d %H:%M'),
+                'Match': bet['match'],
+                'Marché': bet['market'],
+                'Sélection': bet['selection'],
+                'Cote': f"{bet['odds']:.2f}",
+                'Mise': f"€{bet['stake']:,.2f}",
+                'Statut': bet['status'],
+                'Résultat': bet.get('result', 'N/A'),
+                'Profit': f"€{bet.get('potential_win', 0):,.2f}" if bet.get('result') == 'win' else f"-€{bet['stake']:,.2f}"
+            })
         
-        1. **API-Football** (api-sports.io)
-        2. **The Odds API** (the-odds-api.com)
+        df = pd.DataFrame(history_data)
+        st.dataframe(df, use_container_width=True, hide_index=True)
         
-        Ajoutez-les dans les secrets Streamlit:
-        ```
-        API_FOOTBALL_KEY = "votre_clé_api_football"
-        ODDS_API_KEY = "votre_clé_odds_api"
-        ```
-        
-        Sans ces clés, l'application fonctionnera en mode démo limité.
-        """)
-    
-    # Sidebar
-    with st.sidebar:
-        st.header("⚙️ CONFIGURATION")
-        
-        # Mode de fonctionnement
-        mode = st.selectbox(
-            "Mode",
-            ["🎯 Value Bets", "💰 Paris en direct", "📈 Performance", "⚙️ Configuration API"]
+        # Bouton d'export
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Exporter en CSV",
+            data=csv,
+            file_name=f"historique_paris_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
         )
-        
-        # Paramètres avancés
-        with st.expander("🔧 Paramètres avancés"):
-            st.checkbox("Analyse approfondie", value=True)
-            st.checkbox("Notifications en direct", value=False)
-            st.checkbox("Auto-betting (expérimental)", value=False)
-        
-        # Informations système
-        st.divider()
-        st.info(f"""
-        **📊 Système actif**
-        - Dernière mise à jour: {datetime.now().strftime('%H:%M:%S')}
-        - Mode: {'PRO' if app.api_config.API_FOOTBALL_KEY else 'DÉMO'}
-        - Version: 2.1.0
-        """)
-    
-    # Navigation par mode
-    if mode == "🎯 Value Bets":
-        app.display_value_bets()
-        
-    elif mode == "💰 Paris en direct":
-        tab1, tab2, tab3 = st.tabs(["🏠 Dashboard", "⚽ Matchs en direct", "📅 Matchs à venir"])
-        
-        with tab1:
-            app.display_dashboard()
-        
-        with tab2:
-            app.display_live_matches()
-        
-        with tab3:
-            app.display_upcoming_matches()
-        
-        # Interface de pari
-        st.divider()
-        app.display_betting_interface()
-        
-    elif mode == "📈 Performance":
-        app.display_performance()
-        
-    elif mode == "⚙️ Configuration API":
-        st.header("Configuration des APIs")
-        
-        st.info("""
-        **Instructions:**
-        
-        1. **API-Football** (api-sports.io)
-           - Inscrivez-vous sur api-sports.io
-           - Obtenez votre clé API
-           - Limite: 100 requêtes/jour (gratuit)
-        
-        2. **The Odds API** (the-odds-api.com)
-           - Inscrivez-vous sur the-odds-api.com
-           - Obtenez votre clé API
-           - Limite: 500 requêtes/mois (gratuit)
-        
-        3. **Configuration Streamlit Secrets:**
-           - Allez dans les paramètres de votre app Streamlit
-           - Ajoutez les clés dans "Secrets"
-        """)
-        
-        st.code("""
-        # .streamlit/secrets.toml
-        API_FOOTBALL_KEY = "votre_clé_api_football"
-        ODDS_API_KEY = "votre_clé_odds_api"
-        """, language="toml")
+    else:
+        st.info("Aucun pari dans l'historique.")
 
 # =============================================================================
 # LANCEMENT
