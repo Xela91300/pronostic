@@ -1,5 +1,3 @@
-# app.py - Système de Pronostics Automatique
-# Version simplifiée avec analyse automatique via API
 
 import streamlit as st
 import pandas as pd
