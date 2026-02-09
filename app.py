@@ -1,35 +1,19 @@
-# tipser_pro_ai.py - Système Professionnel avec Machine Learning
+# app.py - Tipser Pro Football Predictions
+# Version ultra légère et fonctionnelle
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, date, timedelta
-import requests
-import json
-import time
 import random
-from typing import Dict, List, Tuple
-import warnings
-warnings.filterwarnings('ignore')
-
-# Machine Learning imports
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score
-import xgboost as xgb
-
-# Visualisation
-import plotly.graph_objects as go
-import plotly.express as px
+import time
 
 # =============================================================================
-# CONFIGURATION AVANCÉE
+# CONFIGURATION
 # =============================================================================
 
 class Config:
     """Configuration de l'application"""
-    
     # Couleurs du thème
     COLORS = {
         'primary': '#667eea',
@@ -39,376 +23,309 @@ class Config:
         'danger': '#F44336',
         'info': '#2196F3'
     }
-    
-    # Paramètres ML
-    ML_PARAMS = {
-        'test_size': 0.2,
-        'random_state': 42,
-        'n_estimators': 100
-    }
 
 # =============================================================================
-# MODÈLE DE MACHINE LEARNING
+# AI PREDICTOR (Version Simplifiée)
 # =============================================================================
 
-class MatchPredictor:
-    """Modèle de prédiction avec Machine Learning"""
+class SimpleAIPredictor:
+    """Prédicteur AI simplifié sans scikit-learn"""
     
     def __init__(self):
-        self.models = {}
-        self.scaler = StandardScaler()
-        self.features = [
-            'home_form', 'away_form', 'home_goals_avg', 'away_goals_avg',
-            'home_defense', 'away_defense', 'home_possession', 'away_possession',
-            'home_shots', 'away_shots', 'h2h_home_wins', 'h2h_away_wins'
-        ]
-        
-    def train_models(self):
-        """Entraîne les modèles ML sur des données historiques"""
-        # Générer des données d'entraînement simulées
-        X_train, y_train = self._generate_training_data()
-        
-        # Normaliser les features
-        X_train_scaled = self.scaler.fit_transform(X_train)
-        
-        # Modèle Random Forest
-        rf_model = RandomForestClassifier(
-            n_estimators=Config.ML_PARAMS['n_estimators'],
-            random_state=Config.ML_PARAMS['random_state']
-        )
-        rf_model.fit(X_train_scaled, y_train)
-        self.models['random_forest'] = rf_model
-        
-        # Modèle XGBoost
-        xgb_model = xgb.XGBClassifier(
-            n_estimators=Config.ML_PARAMS['n_estimators'],
-            random_state=Config.ML_PARAMS['random_state']
-        )
-        xgb_model.fit(X_train_scaled, y_train)
-        self.models['xgboost'] = xgb_model
-        
-        # Modèle Gradient Boosting
-        gb_model = GradientBoostingClassifier(
-            n_estimators=Config.ML_PARAMS['n_estimators'],
-            random_state=Config.ML_PARAMS['random_state']
-        )
-        gb_model.fit(X_train_scaled, y_train)
-        self.models['gradient_boosting'] = gb_model
-        
-        return self._evaluate_models(X_train_scaled, y_train)
-    
-    def _generate_training_data(self, n_samples=1000):
-        """Génère des données d'entraînement simulées"""
-        np.random.seed(Config.ML_PARAMS['random_state'])
-        
-        X = np.zeros((n_samples, len(self.features)))
-        y = np.zeros(n_samples)
-        
-        for i in range(n_samples):
-            # Features
-            X[i, 0] = np.random.uniform(0.3, 0.9)  # home_form
-            X[i, 1] = np.random.uniform(0.3, 0.9)  # away_form
-            X[i, 2] = np.random.uniform(1.0, 2.5)  # home_goals_avg
-            X[i, 3] = np.random.uniform(1.0, 2.5)  # away_goals_avg
-            X[i, 4] = np.random.uniform(0.3, 0.9)  # home_defense
-            X[i, 5] = np.random.uniform(0.3, 0.9)  # away_defense
-            X[i, 6] = np.random.uniform(40, 70)    # home_possession
-            X[i, 7] = np.random.uniform(40, 70)    # away_possession
-            X[i, 8] = np.random.uniform(10, 20)    # home_shots
-            X[i, 9] = np.random.uniform(10, 20)    # away_shots
-            X[i, 10] = np.random.uniform(0, 5)     # h2h_home_wins
-            X[i, 11] = np.random.uniform(0, 5)     # h2h_away_wins
-            
-            # Target (0: home win, 1: draw, 2: away win)
-            home_strength = X[i, 0] + X[i, 2] + X[i, 4] + X[i, 6]/100 + X[i, 10]/10
-            away_strength = X[i, 1] + X[i, 3] + X[i, 5] + X[i, 7]/100 + X[i, 11]/10
-            
-            if abs(home_strength - away_strength) < 0.1:
-                y[i] = 1  # Draw
-            elif home_strength > away_strength:
-                y[i] = 0  # Home win
-            else:
-                y[i] = 2  # Away win
-        
-        return X, y
-    
-    def _evaluate_models(self, X, y):
-        """Évalue les performances des modèles"""
-        results = {}
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=Config.ML_PARAMS['test_size'],
-            random_state=Config.ML_PARAMS['random_state']
-        )
-        
-        for name, model in self.models.items():
-            model.fit(X_train, y_train)
-            y_pred = model.predict(X_test)
-            
-            results[name] = {
-                'accuracy': accuracy_score(y_test, y_pred),
-                'precision': precision_score(y_test, y_pred, average='weighted')
-            }
-        
-        return results
-    
-    def predict_match(self, home_stats: Dict, away_stats: Dict, h2h_stats: Dict = None):
-        """Prédit le résultat d'un match"""
-        if not self.models:
-            self.train_models()
-        
-        # Préparer les features
-        features = self._extract_features(home_stats, away_stats, h2h_stats)
-        features_scaled = self.scaler.transform([features])
-        
-        # Prédictions de chaque modèle
-        predictions = {}
-        probabilities = {}
-        
-        for name, model in self.models.items():
-            pred = model.predict(features_scaled)[0]
-            proba = model.predict_proba(features_scaled)[0]
-            
-            predictions[name] = pred
-            probabilities[name] = {
-                'home_win': proba[0],
-                'draw': proba[1],
-                'away_win': proba[2]
-            }
-        
-        # Consenssus (vote majoritaire)
-        final_prediction = self._consensus_prediction(predictions)
-        final_probabilities = self._average_probabilities(probabilities)
-        
-        return {
-            'prediction': final_prediction,
-            'probabilities': final_probabilities,
-            'model_predictions': predictions,
-            'model_probabilities': probabilities,
-            'confidence': self._calculate_confidence(final_probabilities)
+        self.model_weights = {
+            'home_form': 0.20,
+            'away_form': 0.18,
+            'home_attack': 0.15,
+            'away_attack': 0.15,
+            'home_defense': 0.12,
+            'away_defense': 0.12,
+            'h2h': 0.08
         }
     
-    def _extract_features(self, home_stats: Dict, away_stats: Dict, h2h_stats: Dict):
-        """Extrait les features pour la prédiction"""
-        # Valeurs par défaut
-        h2h_stats = h2h_stats or {'home_wins': 0, 'away_wins': 0, 'draws': 0}
+    def predict(self, home_team, away_team, home_stats, away_stats, h2h_stats=None):
+        """Prédit le résultat d'un match"""
         
-        return [
-            home_stats.get('form_score', 0.5),      # home_form
-            away_stats.get('form_score', 0.5),      # away_form
-            home_stats.get('goals_for_avg', 1.5),   # home_goals_avg
-            away_stats.get('goals_for_avg', 1.5),   # away_goals_avg
-            home_stats.get('defense_score', 0.5),   # home_defense
-            away_stats.get('defense_score', 0.5),   # away_defense
-            home_stats.get('possession', 50),       # home_possession
-            away_stats.get('possession', 50),       # away_possession
-            home_stats.get('shots_per_game', 15),   # home_shots
-            away_stats.get('shots_per_game', 15),   # away_shots
-            h2h_stats.get('home_wins', 0),          # h2h_home_wins
-            h2h_stats.get('away_wins', 0)           # h2h_away_wins
-        ]
+        # Calculer les scores
+        home_score = self._calculate_score(home_stats, is_home=True)
+        away_score = self._calculate_score(away_stats, is_home=False)
+        
+        # Ajouter l'effet h2h
+        if h2h_stats:
+            home_score += h2h_stats.get('home_advantage', 0)
+            away_score += h2h_stats.get('away_advantage', 0)
+        
+        # Calculer les probabilités
+        total = home_score + away_score + 1  # +1 pour le match nul
+        home_prob = home_score / total
+        draw_prob = 1 / total  # Probabilité de base pour le match nul
+        away_prob = away_score / total
+        
+        # Normaliser
+        total_probs = home_prob + draw_prob + away_prob
+        home_prob /= total_probs
+        draw_prob /= total_probs
+        away_prob /= total_probs
+        
+        return {
+            'home_win': round(home_prob * 100, 1),
+            'draw': round(draw_prob * 100, 1),
+            'away_win': round(away_prob * 100, 1),
+            'confidence': self._calculate_confidence(home_prob, away_prob, draw_prob),
+            'expected_home': round(random.uniform(1.2, 2.4), 1),
+            'expected_away': round(random.uniform(0.8, 1.8), 1)
+        }
     
-    def _consensus_prediction(self, predictions: Dict):
-        """Calcule la prédiction par consensus"""
-        votes = list(predictions.values())
-        return max(set(votes), key=votes.count)
+    def _calculate_score(self, stats, is_home):
+        """Calcule le score d'une équipe"""
+        score = 0
+        
+        # Forme
+        form_score = self._convert_form_to_score(stats.get('form', 'DDDDD'))
+        score += self.model_weights['home_form' if is_home else 'away_form'] * form_score
+        
+        # Attaque
+        attack_score = min(stats.get('goals_for_avg', 1.5) / 3, 1)
+        score += self.model_weights['home_attack' if is_home else 'away_attack'] * attack_score
+        
+        # Défense
+        defense_score = 1 - min(stats.get('goals_against_avg', 1.5) / 3, 1)
+        score += self.model_weights['home_defense' if is_home else 'away_defense'] * defense_score
+        
+        # Bonus domicile
+        if is_home:
+            score *= 1.1
+        
+        return max(0.1, score)
     
-    def _average_probabilities(self, probabilities: Dict):
-        """Calcule les probabilités moyennes"""
-        avg_probs = {'home_win': 0, 'draw': 0, 'away_win': 0}
+    def _convert_form_to_score(self, form_string):
+        """Convertit une chaîne de forme en score"""
+        if not form_string or len(form_string) < 3:
+            return 0.5
         
-        for model_probs in probabilities.values():
-            for key in avg_probs.keys():
-                avg_probs[key] += model_probs[key]
+        scores = {'W': 1.0, 'D': 0.5, 'L': 0.0}
+        recent_form = form_string[-5:] if len(form_string) > 5 else form_string
         
-        for key in avg_probs.keys():
-            avg_probs[key] /= len(probabilities)
-        
-        return avg_probs
+        total = sum(scores.get(char, 0.5) for char in recent_form)
+        return total / len(recent_form)
     
-    def _calculate_confidence(self, probabilities: Dict):
-        """Calcule le score de confiance"""
-        max_prob = max(probabilities.values())
-        return min(0.95, max(0.5, max_prob))
+    def _calculate_confidence(self, home_prob, away_prob, draw_prob):
+        """Calcule la confiance de la prédiction"""
+        max_prob = max(home_prob, away_prob, draw_prob)
+        confidence = (max_prob - 0.333) * 3  # Normaliser par rapport à 33.3% (distribution égale)
+        return min(0.95, max(0.4, confidence))
 
 # =============================================================================
 # DATA MANAGER
 # =============================================================================
 
 class DataManager:
-    """Gestionnaire de données"""
+    """Gestionnaire de données simplifié"""
     
     def __init__(self):
-        self.matches = self._load_demo_data()
         self.teams = self._generate_teams_data()
-        
-    def _load_demo_data(self):
-        """Charge les données de démonstration"""
-        today = datetime.now()
-        
-        return [
-            {
-                'id': 1,
-                'home': 'Paris SG',
-                'away': 'Marseille',
-                'league': 'Ligue 1',
-                'date': today + timedelta(days=1),
-                'time': '20:45',
-                'venue': 'Parc des Princes',
-                'odds': {'1': 1.65, 'N': 3.80, '2': 4.50, 'over_2.5': 1.85}
-            },
-            {
-                'id': 2,
-                'home': 'Lyon',
-                'away': 'Monaco',
-                'league': 'Ligue 1',
-                'date': today + timedelta(days=2),
-                'time': '17:00',
-                'venue': 'Groupama Stadium',
-                'odds': {'1': 2.10, 'N': 3.40, '2': 3.20, 'over_2.5': 1.75}
-            },
-            {
-                'id': 3,
-                'home': 'Real Madrid',
-                'away': 'Barcelona',
-                'league': 'La Liga',
-                'date': today + timedelta(days=3),
-                'time': '21:00',
-                'venue': 'Santiago Bernabéu',
-                'odds': {'1': 2.30, 'N': 3.50, '2': 2.90, 'over_2.5': 1.70}
-            },
-            {
-                'id': 4,
-                'home': 'Manchester City',
-                'away': 'Liverpool',
-                'league': 'Premier League',
-                'date': today + timedelta(days=1),
-                'time': '16:30',
-                'venue': 'Etihad Stadium',
-                'odds': {'1': 1.95, 'N': 3.60, '2': 3.40, 'over_2.5': 1.65}
-            },
-            {
-                'id': 5,
-                'home': 'Bayern Munich',
-                'away': 'Borussia Dortmund',
-                'league': 'Bundesliga',
-                'date': today + timedelta(days=2),
-                'time': '18:30',
-                'venue': 'Allianz Arena',
-                'odds': {'1': 1.75, 'N': 3.90, '2': 4.00, 'over_2.5': 1.55}
-            }
-        ]
+        self.matches = self._generate_matches_data()
     
     def _generate_teams_data(self):
         """Génère des données d'équipes"""
         teams = {}
-        
         team_list = [
-            'Paris SG', 'Marseille', 'Lyon', 'Monaco',
-            'Real Madrid', 'Barcelona', 'Manchester City', 'Liverpool',
-            'Bayern Munich', 'Borussia Dortmund'
+            'Paris SG', 'Marseille', 'Lyon', 'Monaco', 'Lille', 'Nice',
+            'Real Madrid', 'Barcelona', 'Atletico Madrid', 'Sevilla',
+            'Manchester City', 'Liverpool', 'Arsenal', 'Manchester United',
+            'Bayern Munich', 'Borussia Dortmund', 'RB Leipzig', 'Bayer Leverkusen',
+            'Juventus', 'Inter Milan', 'AC Milan', 'Napoli'
         ]
         
         for team in team_list:
+            # Générer une forme réaliste (plus de victoires pour les meilleures équipes)
+            if team in ['Paris SG', 'Real Madrid', 'Manchester City', 'Bayern Munich']:
+                form_chars = random.choices(['W', 'D', 'L'], weights=[60, 25, 15], k=5)
+            elif team in ['Marseille', 'Barcelona', 'Liverpool', 'Borussia Dortmund']:
+                form_chars = random.choices(['W', 'D', 'L'], weights=[50, 30, 20], k=5)
+            else:
+                form_chars = random.choices(['W', 'D', 'L'], weights=[40, 30, 30], k=5)
+            
             teams[team] = {
-                'form': ''.join(random.choices(['W', 'D', 'L'], k=5)),
-                'form_score': random.uniform(0.4, 0.9),
-                'goals_for_avg': round(random.uniform(1.2, 2.5), 1),
-                'goals_against_avg': round(random.uniform(0.8, 1.8), 1),
-                'defense_score': random.uniform(0.4, 0.9),
+                'form': ''.join(form_chars),
+                'goals_for_avg': round(random.uniform(1.0, 2.5), 1),
+                'goals_against_avg': round(random.uniform(0.8, 2.0), 1),
                 'possession': random.randint(45, 65),
-                'shots_per_game': random.randint(12, 20),
+                'shots_per_game': random.randint(10, 20),
                 'home_strength': random.uniform(0.6, 0.9),
                 'away_strength': random.uniform(0.4, 0.8)
             }
         
         return teams
     
-    def get_team_stats(self, team_name: str):
+    def _generate_matches_data(self):
+        """Génère des données de matchs"""
+        today = datetime.now()
+        matches = []
+        
+        # Matchs de Ligue 1
+        ligue1_matches = [
+            ('Paris SG', 'Marseille', 'Ligue 1', 'Parc des Princes'),
+            ('Lyon', 'Monaco', 'Ligue 1', 'Groupama Stadium'),
+            ('Lille', 'Nice', 'Ligue 1', 'Stade Pierre-Mauroy'),
+            ('Marseille', 'Lyon', 'Ligue 1', 'Orange Vélodrome'),
+            ('Monaco', 'Paris SG', 'Ligue 1', 'Stade Louis-II')
+        ]
+        
+        # Matchs de La Liga
+        laliga_matches = [
+            ('Real Madrid', 'Barcelona', 'La Liga', 'Santiago Bernabéu'),
+            ('Atletico Madrid', 'Sevilla', 'La Liga', 'Wanda Metropolitano'),
+            ('Barcelona', 'Atletico Madrid', 'La Liga', 'Camp Nou')
+        ]
+        
+        # Matchs de Premier League
+        pl_matches = [
+            ('Manchester City', 'Liverpool', 'Premier League', 'Etihad Stadium'),
+            ('Arsenal', 'Manchester United', 'Premier League', 'Emirates Stadium'),
+            ('Liverpool', 'Arsenal', 'Premier League', 'Anfield')
+        ]
+        
+        all_matches = ligue1_matches + laliga_matches + pl_matches
+        
+        for idx, (home, away, league, venue) in enumerate(all_matches[:8], 1):
+            # Générer des cotes réalistes
+            home_strength = self.teams[home]['home_strength']
+            away_strength = self.teams[away]['away_strength']
+            
+            if home_strength > away_strength + 0.2:
+                home_odds = round(random.uniform(1.4, 1.8), 2)
+                draw_odds = round(random.uniform(3.8, 4.2), 2)
+                away_odds = round(random.uniform(4.5, 6.0), 2)
+            elif away_strength > home_strength + 0.2:
+                home_odds = round(random.uniform(4.0, 5.5), 2)
+                draw_odds = round(random.uniform(3.5, 4.0), 2)
+                away_odds = round(random.uniform(1.5, 2.0), 2)
+            else:
+                home_odds = round(random.uniform(2.0, 2.8), 2)
+                draw_odds = round(random.uniform(3.2, 3.6), 2)
+                away_odds = round(random.uniform(2.5, 3.5), 2)
+            
+            matches.append({
+                'id': idx,
+                'home': home,
+                'away': away,
+                'league': league,
+                'date': today + timedelta(days=random.randint(1, 7)),
+                'time': f"{random.randint(17, 21)}:00",
+                'venue': venue,
+                'odds': {
+                    '1': home_odds,
+                    'N': draw_odds,
+                    '2': away_odds,
+                    'over_2.5': round(random.uniform(1.6, 2.1), 2),
+                    'btts_yes': round(random.uniform(1.5, 1.9), 2)
+                }
+            })
+        
+        return matches
+    
+    def get_team_stats(self, team_name):
         """Récupère les stats d'une équipe"""
         return self.teams.get(team_name, {
             'form': 'DDDDD',
-            'form_score': 0.5,
             'goals_for_avg': 1.5,
             'goals_against_avg': 1.5,
-            'defense_score': 0.5,
             'possession': 50,
             'shots_per_game': 15
         })
     
-    def get_h2h_stats(self, home_team: str, away_team: str):
+    def get_h2h_stats(self, home_team, away_team):
         """Récupère les stats tête-à-tête"""
-        # Simulé pour la démo
+        # Simuler des stats historiques
+        total_matches = random.randint(3, 10)
+        home_wins = random.randint(0, total_matches // 2)
+        away_wins = random.randint(0, total_matches // 2)
+        draws = total_matches - home_wins - away_wins
+        
         return {
-            'home_wins': random.randint(2, 5),
-            'away_wins': random.randint(1, 4),
-            'draws': random.randint(1, 3),
-            'total_goals': random.randint(8, 20),
-            'last_5': random.choices([0, 1, 2], k=5)  # 0: home win, 1: draw, 2: away win
+            'total_matches': total_matches,
+            'home_wins': home_wins,
+            'away_wins': away_wins,
+            'draws': draws,
+            'home_advantage': (home_wins - away_wins) * 0.05,
+            'away_advantage': (away_wins - home_wins) * 0.05
         }
 
 # =============================================================================
-# VALUE BET ANALYZER
+# BETTING ANALYZER
 # =============================================================================
 
-class ValueBetAnalyzer:
-    """Analyseur de value bets"""
+class BettingAnalyzer:
+    """Analyseur de paris simplifié"""
     
     @staticmethod
-    def calculate_kelly_criterion(probability: float, odds: float, bankroll: float):
-        """Calcule la fraction Kelly"""
-        if odds <= 1:
-            return 0
-        
-        fraction = (probability * (odds - 1) - (1 - probability)) / (odds - 1)
-        return max(0, min(fraction, 0.5))  # Limiter à 50%
-    
-    @staticmethod
-    def analyze_value(probability: float, odds: float):
-        """Analyse la valeur d'un pari"""
-        fair_odds = 1 / probability if probability > 0 else float('inf')
-        value = (odds / fair_odds) - 1 if fair_odds > 0 else -1
+    def calculate_value(probability, odds):
+        """Calcule la valeur d'un pari"""
+        fair_odds = 1 / (probability / 100) if probability > 0 else float('inf')
+        value = (odds / fair_odds) - 1
         
         return {
             'fair_odds': round(fair_odds, 2),
-            'value': round(value * 100, 1),
-            'expected_value': round((probability * (odds - 1)) - (1 - probability), 3),
-            'is_value_bet': value > 0.05  # 5% de valeur minimum
+            'value_percent': round(value * 100, 1),
+            'is_value': value > 0.05,
+            'expected_value': round((probability/100 * (odds - 1)) - ((1 - probability/100) * 1), 3)
         }
     
     @staticmethod
-    def recommend_stake(bankroll: float, kelly_fraction: float, risk_profile: str = 'moderate'):
+    def recommend_stake(bankroll, probability, odds, risk_profile='moderate'):
         """Recommande une mise"""
-        if risk_profile == 'conservative':
-            multiplier = 0.5
-        elif risk_profile == 'aggressive':
-            multiplier = 1.5
-        else:  # moderate
-            multiplier = 1.0
+        # Version simplifiée du critère de Kelly
+        if odds <= 1:
+            return 0
         
-        suggested_stake = bankroll * kelly_fraction * multiplier
-        return max(1, min(suggested_stake, bankroll * 0.1))  # Max 10% du bankroll
+        kelly = ((probability/100) * (odds - 1) - (1 - probability/100)) / (odds - 1)
+        
+        # Ajuster selon le profil de risque
+        if risk_profile == 'conservative':
+            kelly *= 0.5
+        elif risk_profile == 'aggressive':
+            kelly *= 1.5
+        
+        # Limites
+        kelly = max(0, min(kelly, 0.1))  # Max 10% du bankroll
+        
+        stake = bankroll * kelly
+        
+        if stake < 1:
+            return "Observation"
+        elif stake < bankroll * 0.03:
+            return f"Petite (€{stake:.0f})"
+        elif stake < bankroll * 0.07:
+            return f"Moyenne (€{stake:.0f})"
+        else:
+            return f"Forte (€{stake:.0f})"
 
 # =============================================================================
-# INTERFACE UTILISATEUR
+# UI COMPONENTS
 # =============================================================================
 
 class UIComponents:
-    """Composants d'interface réutilisables"""
+    """Composants d'interface"""
     
     @staticmethod
     def setup_page():
         """Configure la page Streamlit"""
         st.set_page_config(
-            page_title="Tipser Pro AI | Pronostics Intelligents",
+            page_title="Tipser Pro | Pronostics Football",
             page_icon="⚽",
             layout="wide",
             initial_sidebar_state="expanded"
         )
         
         # CSS personnalisé
+        UIComponents._inject_css()
+    
+    @staticmethod
+    def _inject_css():
+        """Injecte le CSS"""
         st.markdown(f"""
         <style>
-        /* Variables de couleurs */
+        /* Variables */
         :root {{
             --primary: {Config.COLORS['primary']};
             --secondary: {Config.COLORS['secondary']};
@@ -418,7 +335,7 @@ class UIComponents:
             --info: {Config.COLORS['info']};
         }}
         
-        /* Styles principaux */
+        /* Header */
         .main-header {{
             background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
             color: white;
@@ -428,6 +345,7 @@ class UIComponents:
             margin-bottom: 20px;
         }}
         
+        /* Cards */
         .pro-card {{
             background: white;
             border-radius: 15px;
@@ -439,21 +357,14 @@ class UIComponents:
         }}
         
         .pro-card:hover {{
-            transform: translateY(-5px);
+            transform: translateY(-3px);
             box-shadow: 0 8px 25px rgba(0,0,0,0.15);
         }}
         
-        .metric-card {{
-            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
-            color: white;
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-        }}
-        
+        /* Badges */
         .badge {{
             display: inline-block;
-            padding: 5px 15px;
+            padding: 4px 12px;
             border-radius: 20px;
             font-size: 12px;
             font-weight: bold;
@@ -464,14 +375,24 @@ class UIComponents:
         .badge-warning {{ background: linear-gradient(135deg, var(--warning) 0%, #F57C00 100%); color: white; }}
         .badge-danger {{ background: linear-gradient(135deg, var(--danger) 0%, #D32F2F 100%); color: white; }}
         .badge-info {{ background: linear-gradient(135deg, var(--info) 0%, #1976D2 100%); color: white; }}
-        .badge-premium {{ background: linear-gradient(135deg, #FFD700 0%, #FFC107 100%); color: #333; font-weight: bold; }}
+        .badge-premium {{ background: linear-gradient(135deg, #FFD700 0%, #FFC107 100%); color: #333; }}
         
-        /* Amélioration des progress bars */
+        /* Metrics */
+        .metric-box {{
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            margin: 5px;
+        }}
+        
+        /* Progress bars */
         .stProgress > div > div > div {{
             background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);
         }}
         
-        /* Boutons */
+        /* Buttons */
         .stButton > button {{
             border-radius: 10px;
             font-weight: bold;
@@ -479,39 +400,45 @@ class UIComponents:
         }}
         
         .stButton > button:hover {{
-            transform: scale(1.05);
+            transform: scale(1.03);
+        }}
+        
+        /* Dataframes */
+        .dataframe {{
+            border-radius: 10px;
+            overflow: hidden;
         }}
         </style>
         """, unsafe_allow_html=True)
 
 # =============================================================================
-# APPLICATION PRINCIPALE
+# MAIN APPLICATION
 # =============================================================================
 
 class TipserProApp:
-    """Application principale Tipser Pro"""
+    """Application principale"""
     
     def __init__(self):
         self.ui = UIComponents()
-        self.data_manager = DataManager()
-        self.predictor = MatchPredictor()
-        self.value_analyzer = ValueBetAnalyzer()
+        self.data = DataManager()
+        self.ai = SimpleAIPredictor()
+        self.analyzer = BettingAnalyzer()
         
         # Initialiser session state
         self._init_session_state()
-        
+    
     def _init_session_state(self):
         """Initialise le session state"""
-        if 'selected_match' not in st.session_state:
-            st.session_state.selected_match = None
-        if 'view_mode' not in st.session_state:
-            st.session_state.view_mode = 'dashboard'
-        if 'bankroll' not in st.session_state:
-            st.session_state.bankroll = 1000
-        if 'risk_profile' not in st.session_state:
-            st.session_state.risk_profile = 'moderate'
-        if 'ml_models_trained' not in st.session_state:
-            st.session_state.ml_models_trained = False
+        defaults = {
+            'selected_match': None,
+            'view_mode': 'dashboard',
+            'bankroll': 1000,
+            'risk_profile': 'moderate'
+        }
+        
+        for key, value in defaults.items():
+            if key not in st.session_state:
+                st.session_state[key] = value
     
     def run(self):
         """Exécute l'application"""
@@ -538,31 +465,31 @@ class TipserProApp:
         with col2:
             st.markdown("""
             <div class="main-header">
-                <h1>🤖 TIPSER PRO AI</h1>
-                <h3>Machine Learning & Value Bet Detection</h3>
+                <h1>🤖 TIPSER PRO</h1>
+                <h3>Pronostics Football Intelligents</h3>
             </div>
             """, unsafe_allow_html=True)
         
         with col3:
             st.metric("Bankroll", f"€{st.session_state.bankroll}")
-            st.caption("Powered by AI")
+            st.caption("Version Pro")
     
     def _display_sidebar(self):
         """Affiche la sidebar"""
         st.sidebar.title("🎯 Navigation")
         
-        # Menu principal
+        # Menu
         menu_options = {
             "📊 Dashboard": "dashboard",
-            "🔍 Match Selection": "selection",
-            "🤖 AI Analysis": "analysis",
+            "🔍 Matchs": "matches",
+            "🤖 Analyse": "analysis",
             "💰 Value Bets": "value",
             "📈 Portfolio": "portfolio",
-            "⚙️ Settings": "settings"
+            "⚙️ Réglages": "settings"
         }
         
         selected = st.sidebar.radio(
-            "Go to",
+            "Menu",
             list(menu_options.keys())
         )
         
@@ -571,45 +498,35 @@ class TipserProApp:
         st.sidebar.divider()
         
         # Filtres rapides
-        st.sidebar.subheader("🔎 Quick Filters")
+        st.sidebar.subheader("🔎 Filtres")
         
-        leagues = st.sidebar.multiselect(
-            "Leagues",
+        st.sidebar.multiselect(
+            "Ligues",
             ["Ligue 1", "Premier League", "La Liga", "Bundesliga", "Serie A"],
-            default=["Ligue 1", "Premier League"]
+            default=["Ligue 1", "Premier League"],
+            key="league_filter"
         )
         
         min_confidence = st.sidebar.slider(
-            "Min Confidence",
-            50, 95, 70
+            "Confiance min",
+            50, 95, 65
         )
-        
-        # Entraîner les modèles ML
-        st.sidebar.divider()
-        if st.sidebar.button("🤖 Train ML Models", type="secondary", use_container_width=True):
-            with st.spinner("Training AI models..."):
-                results = self.predictor.train_models()
-                st.session_state.ml_models_trained = True
-                st.sidebar.success("Models trained successfully!")
-                
-                # Afficher les résultats
-                with st.sidebar.expander("Model Performance"):
-                    for model, metrics in results.items():
-                        st.write(f"**{model}**:")
-                        st.write(f"Accuracy: {metrics['accuracy']:.3f}")
-                        st.write(f"Precision: {metrics['precision']:.3f}")
         
         # Stats rapides
         st.sidebar.divider()
-        st.sidebar.subheader("📊 Quick Stats")
+        st.sidebar.subheader("📈 Stats")
         
         col1, col2 = st.sidebar.columns(2)
         with col1:
-            st.metric("ROI", "+14.5%")
-            st.metric("Tips", "24")
+            st.metric("Tips", "18")
+            st.metric("ROI", "+12.4%")
         with col2:
-            st.metric("Hit Rate", "68%")
-            st.metric("Value", "€145")
+            st.metric("Hit Rate", "67%")
+            st.metric("Value", "€124")
+        
+        # Bouton actualisation
+        if st.sidebar.button("🔄 Actualiser", use_container_width=True):
+            st.rerun()
     
     def _display_main_content(self):
         """Affiche le contenu principal"""
@@ -617,10 +534,15 @@ class TipserProApp:
         
         if view_mode == 'dashboard':
             self._display_dashboard()
-        elif view_mode == 'selection':
-            self._display_selection()
+        elif view_mode == 'matches':
+            self._display_matches()
         elif view_mode == 'analysis':
-            self._display_analysis()
+            if st.session_state.selected_match:
+                self._display_analysis()
+            else:
+                st.warning("Veuillez d'abord sélectionner un match")
+                st.session_state.view_mode = 'matches'
+                st.rerun()
         elif view_mode == 'value':
             self._display_value_bets()
         elif view_mode == 'portfolio':
@@ -630,115 +552,56 @@ class TipserProApp:
     
     def _display_dashboard(self):
         """Affiche le dashboard"""
-        st.title("📊 AI Dashboard")
+        st.title("📊 Dashboard")
         
         # KPI Principaux
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.markdown("""
-            <div class="metric-card">
-                <h3>🤖 AI Tips</h3>
-                <h2>8</h2>
+            <div class="metric-box">
+                <h3>🎯 Tips Actifs</h3>
+                <h2>5</h2>
             </div>
             """, unsafe_allow_html=True)
         
         with col2:
             st.markdown("""
-            <div class="metric-card">
-                <h3>📈 AI Accuracy</h3>
-                <h2>72.4%</h2>
+            <div class="metric-box">
+                <h3>📈 ROI 7j</h3>
+                <h2>+5.8%</h2>
             </div>
             """, unsafe_allow_html=True)
         
         with col3:
             st.markdown("""
-            <div class="metric-card">
-                <h3>💰 Value Detected</h3>
-                <h2>+€245</h2>
+            <div class="metric-box">
+                <h3>✅ Hit Rate</h3>
+                <h2>68.2%</h2>
             </div>
             """, unsafe_allow_html=True)
         
         with col4:
             st.markdown("""
-            <div class="metric-card">
-                <h3>🏆 ROI (30d)</h3>
-                <h2>+16.8%</h2>
+            <div class="metric-box">
+                <h3>💰 Bankroll</h3>
+                <h2>€1,124</h2>
             </div>
             """, unsafe_allow_html=True)
         
         st.divider()
         
-        # Graphiques avec Plotly
-        col1, col2 = st.columns(2)
+        # Derniers tips
+        st.subheader("🎯 Derniers Tips")
         
-        with col1:
-            st.subheader("📈 AI Model Performance")
-            
-            # Graphique de performance des modèles
-            models = ['Random Forest', 'XGBoost', 'Gradient Boosting']
-            accuracy = [0.724, 0.718, 0.731]
-            precision = [0.728, 0.722, 0.735]
-            
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                name='Accuracy',
-                x=models,
-                y=accuracy,
-                marker_color=Config.COLORS['primary']
-            ))
-            fig.add_trace(go.Bar(
-                name='Precision',
-                x=models,
-                y=precision,
-                marker_color=Config.COLORS['secondary']
-            ))
-            
-            fig.update_layout(
-                barmode='group',
-                height=300,
-                template='plotly_white',
-                margin=dict(l=20, r=20, t=30, b=20)
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            st.subheader("🎯 Bet Distribution")
-            
-            # Graphique en camembert
-            labels = ['1N2', 'Over/Under', 'BTTS', 'Handicap', 'Others']
-            values = [45, 25, 15, 10, 5]
-            
-            fig = go.Figure(data=[go.Pie(
-                labels=labels,
-                values=values,
-                hole=.3,
-                marker_colors=[Config.COLORS['primary'], Config.COLORS['secondary'],
-                             Config.COLORS['success'], Config.COLORS['warning'],
-                             Config.COLORS['info']]
-            )])
-            
-            fig.update_layout(
-                height=300,
-                margin=dict(l=20, r=20, t=30, b=20),
-                showlegend=True
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Derniers tips AI
-        st.divider()
-        st.subheader("🤖 Latest AI Predictions")
-        
-        ai_tips = [
-            {"match": "PSG vs Marseille", "prediction": "1", "confidence": 72, "value": "+8.2%", "status": "✅ Won"},
-            {"match": "Real vs Barca", "prediction": "Over 2.5", "confidence": 68, "value": "+7.1%", "status": "⏳ Live"},
-            {"match": "City vs Liverpool", "prediction": "BTTS Yes", "confidence": 75, "value": "+6.5%", "status": "✅ Won"},
-            {"match": "Bayern vs Dortmund", "prediction": "1 & Over 2.5", "confidence": 65, "value": "+5.3%", "status": "⏳ Pending"}
+        tips = [
+            {"match": "PSG vs Marseille", "pred": "1", "cote": 1.65, "stake": "3%", "status": "✅ Gagné"},
+            {"match": "Real vs Barca", "pred": "Over 2.5", "cote": 1.85, "stake": "4%", "status": "⏳ En cours"},
+            {"match": "City vs Liverpool", "pred": "BTTS Yes", "cote": 1.65, "stake": "2%", "status": "✅ Gagné"},
+            {"match": "Bayern vs Dortmund", "pred": "1", "cote": 1.75, "stake": "3%", "status": "❌ Perdu"}
         ]
         
-        for tip in ai_tips:
+        for tip in tips:
             with st.container():
                 col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 2])
                 
@@ -746,73 +609,82 @@ class TipserProApp:
                     st.write(f"**{tip['match']}**")
                 
                 with col2:
-                    st.code(tip['prediction'])
+                    st.code(tip['pred'])
                 
                 with col3:
-                    st.progress(tip['confidence']/100)
-                    st.caption(f"{tip['confidence']}%")
+                    st.metric("Cote", tip['cote'])
                 
                 with col4:
-                    st.markdown(f"<span class='badge badge-premium'>{tip['value']}</span>", unsafe_allow_html=True)
+                    st.write(tip['stake'])
                 
                 with col5:
-                    if tip['status'] == '✅ Won':
+                    if tip['status'] == '✅ Gagné':
                         st.success(tip['status'])
-                    elif tip['status'] == '❌ Lost':
+                    elif tip['status'] == '❌ Perdu':
                         st.error(tip['status'])
                     else:
                         st.info(tip['status'])
                 
                 st.divider()
-    
-    def _display_selection(self):
-        """Affiche la sélection des matchs"""
-        st.title("🔍 Match Selection")
         
-        # Filtres avancés
-        with st.expander("🎯 Advanced Filters", expanded=True):
+        # Performance graph (simple)
+        st.subheader("📈 Performance")
+        
+        # Créer un DataFrame pour le graphique
+        dates = pd.date_range(start='2024-01-01', periods=30, freq='D')
+        values = [1000 + i * 8 + random.randint(-15, 20) for i in range(30)]
+        
+        df = pd.DataFrame({
+            'Date': dates,
+            'Bankroll': values
+        })
+        
+        # Utiliser le line_chart de Streamlit
+        st.line_chart(df.set_index('Date'))
+    
+    def _display_matches(self):
+        """Affiche la sélection des matchs"""
+        st.title("🔍 Matchs Disponibles")
+        
+        # Filtres
+        with st.expander("🎯 Filtres Avancés", expanded=False):
             col1, col2, col3 = st.columns(3)
             
             with col1:
                 date_filter = st.selectbox(
-                    "Time Period",
-                    ["Today", "Tomorrow", "This Weekend", "Next 7 Days", "All Upcoming"]
+                    "Période",
+                    ["Aujourd'hui", "Demain", "Week-end", "7 jours"]
                 )
             
             with col2:
                 league_filter = st.multiselect(
-                    "Leagues",
-                    ["Ligue 1", "Premier League", "La Liga", "Bundesliga", "Serie A",
-                     "Champions League", "Europa League"],
+                    "Ligues",
+                    ["Ligue 1", "Premier League", "La Liga", "Bundesliga", "Serie A"],
                     default=["Ligue 1", "Premier League"]
                 )
             
             with col3:
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    min_odds = st.number_input("Min Odds", 1.2, 5.0, 1.5, 0.1)
-                with col_b:
-                    max_odds = st.number_input("Max Odds", 1.5, 10.0, 3.0, 0.1)
+                min_odds = st.number_input("Cote min", 1.2, 5.0, 1.5, 0.1)
         
-        # Bouton de recherche
-        if st.button("🔍 Search Matches", type="primary", use_container_width=True):
-            with st.spinner("Analyzing matches with AI..."):
-                time.sleep(1)
+        # Bouton recherche
+        if st.button("🔍 Rechercher Matchs", type="primary", use_container_width=True):
+            with st.spinner("Analyse en cours..."):
+                time.sleep(0.5)
                 self._display_match_cards()
     
     def _display_match_cards(self):
         """Affiche les cartes de match"""
-        matches = self.data_manager.matches
+        matches = self.data.matches
         
-        st.subheader(f"📋 Available Matches ({len(matches)})")
+        st.subheader(f"📋 Matchs Trouvés ({len(matches)})")
         
         for match in matches:
-            # Récupérer les prédictions AI
-            home_stats = self.data_manager.get_team_stats(match['home'])
-            away_stats = self.data_manager.get_team_stats(match['away'])
-            h2h_stats = self.data_manager.get_h2h_stats(match['home'], match['away'])
+            # Obtenir les prédictions AI
+            home_stats = self.data.get_team_stats(match['home'])
+            away_stats = self.data.get_team_stats(match['away'])
+            h2h_stats = self.data.get_h2h_stats(match['home'], match['away'])
             
-            prediction = self.predictor.predict_match(home_stats, away_stats, h2h_stats)
+            prediction = self.ai.predict(match['home'], match['away'], home_stats, away_stats, h2h_stats)
             
             # Afficher la carte
             self._render_match_card(match, prediction)
@@ -829,8 +701,8 @@ class TipserProApp:
                     <p>🏆 {match['league']} | 📅 {date_str} | ⏰ {match['time']}</p>
                 </div>
                 <div>
-                    <span class="badge badge-info">AI Confidence: {prediction['confidence']*100:.1f}%</span>
-                    <span class="badge badge-premium">Venue: {match['venue']}</span>
+                    <span class="badge badge-info">Confiance: {prediction['confidence']*100:.0f}%</span>
+                    <span class="badge badge-premium">{match['venue']}</span>
                 </div>
             </div>
             
@@ -838,22 +710,22 @@ class TipserProApp:
                 <div style="text-align: center;">
                     <h5>1</h5>
                     <h3>{match['odds']['1']}</h3>
-                    <p>{prediction['probabilities']['home_win']*100:.1f}%</p>
+                    <p>{prediction['home_win']}%</p>
                 </div>
                 <div style="text-align: center;">
                     <h5>N</h5>
                     <h3>{match['odds']['N']}</h3>
-                    <p>{prediction['probabilities']['draw']*100:.1f}%</p>
+                    <p>{prediction['draw']}%</p>
                 </div>
                 <div style="text-align: center;">
                     <h5>2</h5>
                     <h3>{match['odds']['2']}</h3>
-                    <p>{prediction['probabilities']['away_win']*100:.1f}%</p>
+                    <p>{prediction['away_win']}%</p>
                 </div>
             </div>
             
             <div style="text-align: center; margin-top: 20px;">
-                <h4>🤖 AI Prediction: {self._get_prediction_text(prediction['prediction'], match)}</h4>
+                <h4>🎯 Prédiction: {self._get_prediction_text(prediction)}</h4>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -862,547 +734,297 @@ class TipserProApp:
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button(f"📊 Analyze with AI", key=f"analyze_{match['id']}", use_container_width=True):
+            if st.button(f"📊 Analyser", key=f"analyze_{match['id']}", use_container_width=True):
                 st.session_state.selected_match = match
                 st.session_state.view_mode = 'analysis'
                 st.rerun()
         
         with col2:
-            if st.button(f"💰 Value Analysis", key=f"value_{match['id']}", use_container_width=True):
+            if st.button(f"💰 Value Bet", key=f"value_{match['id']}", use_container_width=True):
                 st.session_state.selected_match = match
                 st.session_state.view_mode = 'value'
                 st.rerun()
         
         st.divider()
     
-    def _get_prediction_text(self, prediction_code, match):
-        """Convertit le code de prédiction en texte"""
-        if prediction_code == 0:
-            return f"{match['home']} Win"
-        elif prediction_code == 1:
-            return "Draw"
+    def _get_prediction_text(self, prediction):
+        """Obtient le texte de prédiction"""
+        if prediction['home_win'] > prediction['away_win'] and prediction['home_win'] > prediction['draw']:
+            return "Victoire domicile"
+        elif prediction['away_win'] > prediction['home_win'] and prediction['away_win'] > prediction['draw']:
+            return "Victoire extérieur"
         else:
-            return f"{match['away']} Win"
+            return "Match nul"
     
     def _display_analysis(self):
-        """Affiche l'analyse AI"""
-        if not st.session_state.selected_match:
-            st.warning("Please select a match first")
-            st.session_state.view_mode = 'selection'
-            st.rerun()
-            return
-        
+        """Affiche l'analyse d'un match"""
         match = st.session_state.selected_match
         
         # Bouton retour
-        if st.button("← Back to Selection"):
-            st.session_state.view_mode = 'selection'
+        if st.button("← Retour aux matchs"):
+            st.session_state.view_mode = 'matches'
             st.rerun()
         
-        st.title(f"🤖 AI Analysis: {match['home']} vs {match['away']}")
+        st.title(f"📈 Analyse: {match['home']} vs {match['away']}")
         
-        # Onglets d'analyse
-        tab1, tab2, tab3, tab4 = st.tabs([
-            "📊 Overview",
-            "🤖 ML Predictions",
-            "📈 Statistics",
-            "🎯 Betting Insights"
-        ])
+        # Onglets
+        tab1, tab2, tab3 = st.tabs(["📊 Vue d'ensemble", "🤖 Prédictions", "📈 Statistiques"])
         
         with tab1:
             self._display_analysis_overview(match)
         
         with tab2:
-            self._display_ml_predictions(match)
+            self._display_predictions(match)
         
         with tab3:
             self._display_statistics(match)
-        
-        with tab4:
-            self._display_betting_insights(match)
     
     def _display_analysis_overview(self, match):
-        """Affiche la vue d'ensemble de l'analyse"""
+        """Affiche la vue d'ensemble"""
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("🏟️ Match Info")
+            st.subheader("🏟️ Informations")
             
             info = {
-                "League": match['league'],
+                "Ligue": match['league'],
                 "Date": match['date'].strftime("%d/%m/%Y"),
-                "Time": match['time'],
-                "Venue": match['venue'],
-                "Referee": "M. Turpin",
-                "Weather": "☀️ 18°C, Clear"
+                "Heure": match['time'],
+                "Stade": match['venue'],
+                "Météo": "☀️ 18°C"
             }
             
             for key, value in info.items():
                 st.metric(key, value)
         
         with col2:
-            st.subheader("📊 Market Odds")
+            st.subheader("📊 Cotes du Marché")
             
             odds_data = {
-                "Home Win": match['odds']['1'],
-                "Draw": match['odds']['N'],
-                "Away Win": match['odds']['2'],
-                "Over 2.5 Goals": match['odds']['over_2.5']
+                "1 - Victoire domicile": match['odds']['1'],
+                "N - Match nul": match['odds']['N'],
+                "2 - Victoire extérieur": match['odds']['2'],
+                "Over 2.5 buts": match['odds']['over_2.5'],
+                "Les deux marquent": match['odds']['btts_yes']
             }
             
-            df_odds = pd.DataFrame(list(odds_data.items()), columns=['Market', 'Odds'])
+            df_odds = pd.DataFrame(list(odds_data.items()), columns=['Marché', 'Cote'])
             st.dataframe(df_odds, use_container_width=True, hide_index=True)
         
-        # Team Form
+        # Forme des équipes
         st.divider()
-        st.subheader("📈 Team Form Analysis")
+        st.subheader("📈 Forme des Équipes")
         
-        home_stats = self.data_manager.get_team_stats(match['home'])
-        away_stats = self.data_manager.get_team_stats(match['away'])
+        home_stats = self.data.get_team_stats(match['home'])
+        away_stats = self.data.get_team_stats(match['away'])
         
         col1, col2 = st.columns(2)
         
         with col1:
             st.write(f"**{match['home']}**")
-            self._display_team_form_chart(home_stats, match['home'])
+            self._display_team_stats(home_stats)
         
         with col2:
             st.write(f"**{match['away']}**")
-            self._display_team_form_chart(away_stats, match['away'])
+            self._display_team_stats(away_stats)
     
-    def _display_team_form_chart(self, stats, team_name):
-        """Affiche le graphique de forme d'une équipe"""
-        # Forme récente
-        form_chars = list(stats['form'])
-        form_values = []
+    def _display_team_stats(self, stats):
+        """Affiche les stats d'une équipe"""
+        # Forme
+        st.write(f"Forme récente: {stats['form']}")
         
-        for char in form_chars:
-            if char == 'W':
-                form_values.append(1)
-            elif char == 'D':
-                form_values.append(0.5)
-            else:  # L
-                form_values.append(0)
+        # Barres de progression
+        st.write("Buts marqués (moy.):")
+        st.progress(min(stats['goals_for_avg'] / 3, 1))
         
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            y=form_values,
-            mode='lines+markers',
-            line=dict(color=Config.COLORS['primary'], width=3),
-            marker=dict(size=10)
-        ))
-        
-        fig.update_layout(
-            height=200,
-            margin=dict(l=20, r=20, t=20, b=20),
-            yaxis=dict(range=[0, 1.1]),
-            showlegend=False,
-            template='plotly_white'
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
+        st.write("Buts encaissés (moy.):")
+        st.progress(min(stats['goals_against_avg'] / 3, 1))
         
         # Métriques
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         with col1:
-            st.metric("Goals For", stats['goals_for_avg'])
+            st.metric("Possession", f"{stats['possession']}%")
         with col2:
-            st.metric("Goals Against", stats['goals_against_avg'])
-        with col3:
-            st.metric("Form Score", f"{stats['form_score']:.2f}")
+            st.metric("Tirs/match", stats['shots_per_game'])
     
-    def _display_ml_predictions(self, match):
-        """Affiche les prédictions ML"""
-        st.subheader("🤖 Machine Learning Predictions")
+    def _display_predictions(self, match):
+        """Affiche les prédictions"""
+        st.subheader("🤖 Prédictions AI")
         
-        # Obtenir les prédictions
-        home_stats = self.data_manager.get_team_stats(match['home'])
-        away_stats = self.data_manager.get_team_stats(match['away'])
-        h2h_stats = self.data_manager.get_h2h_stats(match['home'], match['away'])
+        # Obtenir la prédiction
+        home_stats = self.data.get_team_stats(match['home'])
+        away_stats = self.data.get_team_stats(match['away'])
+        h2h_stats = self.data.get_h2h_stats(match['home'], match['away'])
         
-        prediction = self.predictor.predict_match(home_stats, away_stats, h2h_stats)
+        prediction = self.ai.predict(match['home'], match['away'], home_stats, away_stats, h2h_stats)
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("### 📊 Prediction Probabilities")
+            st.markdown("### 📊 Probabilités")
             
-            # Barres de probabilité
-            prob_data = {
-                f"✅ {match['home']} Win": prediction['probabilities']['home_win'],
-                f"⚪ Draw": prediction['probabilities']['draw'],
-                f"✅ {match['away']} Win": prediction['probabilities']['away_win']
-            }
+            # Afficher les probabilités avec barres
+            st.write(f"**{match['home']} gagne**")
+            st.progress(prediction['home_win'] / 100)
+            st.caption(f"{prediction['home_win']}%")
             
-            for label, prob in prob_data.items():
-                st.write(f"**{label}**")
-                st.progress(prob)
-                st.caption(f"{prob*100:.1f}%")
+            st.write("**Match nul**")
+            st.progress(prediction['draw'] / 100)
+            st.caption(f"{prediction['draw']}%")
+            
+            st.write(f"**{match['away']} gagne**")
+            st.progress(prediction['away_win'] / 100)
+            st.caption(f"{prediction['away_win']}%")
         
         with col2:
-            st.markdown("### 🎯 Model Consensus")
+            st.markdown("### ⚽ Score Attend")
             
-            # Graphique radar des modèles
-            models = list(prediction['model_probabilities'].keys())
-            home_probs = [prediction['model_probabilities'][m]['home_win'] for m in models]
-            draw_probs = [prediction['model_probabilities'][m]['draw'] for m in models]
-            away_probs = [prediction['model_probabilities'][m]['away_win'] for m in models]
+            # Afficher le score attendu
+            st.markdown(f"""
+            <div style="text-align: center; padding: 30px; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 15px;">
+                <h1 style="font-size: 4rem; margin: 0;">
+                    {prediction['expected_home']} - {prediction['expected_away']}
+                </h1>
+                <p style="color: #666; font-size: 1.2rem;">Score attendu (xG)</p>
+            </div>
+            """, unsafe_allow_html=True)
             
-            fig = go.Figure()
-            
-            fig.add_trace(go.Scatterpolar(
-                r=home_probs,
-                theta=models,
-                fill='toself',
-                name=f'{match["home"]} Win',
-                line_color=Config.COLORS['success']
-            ))
-            
-            fig.add_trace(go.Scatterpolar(
-                r=draw_probs,
-                theta=models,
-                fill='toself',
-                name='Draw',
-                line_color=Config.COLORS['warning']
-            ))
-            
-            fig.add_trace(go.Scatterpolar(
-                r=away_probs,
-                theta=models,
-                fill='toself',
-                name=f'{match["away"]} Win',
-                line_color=Config.COLORS['danger']
-            ))
-            
-            fig.update_layout(
-                polar=dict(radialaxis=dict(visible=True)),
-                height=350,
-                showlegend=True
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+            # Métriques
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.metric("Total buts", round(prediction['expected_home'] + prediction['expected_away'], 1))
+            with col_b:
+                st.metric("Confiance AI", f"{prediction['confidence']*100:.1f}%")
         
-        # Recommandation finale
+        # Recommandation
         st.divider()
-        st.markdown("### 🏆 AI Recommendation")
+        st.markdown("### 🎯 Recommandation")
         
-        final_pred = self._get_prediction_text(prediction['prediction'], match)
-        confidence = prediction['confidence'] * 100
+        if prediction['home_win'] > 55:
+            rec = f"✅ {match['home']} gagne"
+            color = Config.COLORS['success']
+        elif prediction['away_win'] > 55:
+            rec = f"✅ {match['away']} gagne"
+            color = Config.COLORS['success']
+        else:
+            rec = "⚪ Match nul ou Double Chance"
+            color = Config.COLORS['info']
         
         st.markdown(f"""
-        <div style="background: linear-gradient(135deg, {Config.COLORS['primary']} 0%, {Config.COLORS['secondary']} 100%);
-                    color: white;
-                    padding: 25px;
-                    border-radius: 15px;
-                    text-align: center;
-                    margin: 20px 0;">
-            <h2>{final_pred}</h2>
-            <h3>Confidence: {confidence:.1f}%</h3>
-            <p>Based on ensemble of {len(prediction['model_predictions'])} ML models</p>
+        <div style="background: {color}; 
+                    color: white; 
+                    padding: 20px; 
+                    border-radius: 10px; 
+                    text-align: center;">
+            <h2>{rec}</h2>
+            <p>Probabilité: {max(prediction['home_win'], prediction['draw'], prediction['away_win'])}%</p>
         </div>
         """, unsafe_allow_html=True)
     
     def _display_statistics(self, match):
-        """Affiche les statistiques détaillées"""
-        st.subheader("📈 Advanced Statistics")
+        """Affiche les statistiques"""
+        st.subheader("📈 Statistiques Comparatives")
         
-        home_stats = self.data_manager.get_team_stats(match['home'])
-        away_stats = self.data_manager.get_team_stats(match['away'])
+        home_stats = self.data.get_team_stats(match['home'])
+        away_stats = self.data.get_team_stats(match['away'])
         
         # Tableau comparatif
         comparison_data = {
-            'Statistic': [
-                'Recent Form',
-                'Form Score',
-                'Goals For (avg)',
-                'Goals Against (avg)',
-                'Possession %',
-                'Shots per Game',
-                'Defense Score',
-                'Expected Goals (xG)'
-            ],
+            'Statistique': ['Forme récente', 'Buts/m (marqués)', 'Buts/m (encaissés)', 'Possession', 'Tirs/match'],
             match['home']: [
                 home_stats['form'],
-                f"{home_stats['form_score']:.2f}",
-                home_stats['goals_for_avg'],
-                home_stats['goals_against_avg'],
+                f"{home_stats['goals_for_avg']}",
+                f"{home_stats['goals_against_avg']}",
                 f"{home_stats['possession']}%",
-                home_stats['shots_per_game'],
-                f"{home_stats['defense_score']:.2f}",
-                f"{home_stats.get('xg', round(random.uniform(1.5, 2.3), 1))}"
+                home_stats['shots_per_game']
             ],
             match['away']: [
                 away_stats['form'],
-                f"{away_stats['form_score']:.2f}",
-                away_stats['goals_for_avg'],
-                away_stats['goals_against_avg'],
+                f"{away_stats['goals_for_avg']}",
+                f"{away_stats['goals_against_avg']}",
                 f"{away_stats['possession']}%",
-                away_stats['shots_per_game'],
-                f"{away_stats['defense_score']:.2f}",
-                f"{away_stats.get('xg', round(random.uniform(1.5, 2.3), 1))}"
+                away_stats['shots_per_game']
             ]
         }
         
         df = pd.DataFrame(comparison_data)
-        st.dataframe(df.set_index('Statistic'), use_container_width=True)
+        st.dataframe(df.set_index('Statistique'), use_container_width=True)
         
-        # Graphiques comparatifs
+        # Métriques avancées
         st.divider()
-        st.subheader("📊 Statistical Comparison")
+        st.subheader("📊 Métriques Avancées")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            xg_diff = home_stats['goals_for_avg'] - away_stats['goals_for_avg']
+            st.metric("Différence xG", f"{xg_diff:+.1f}")
+        
+        with col2:
+            defense_ratio = home_stats['goals_against_avg'] / away_stats['goals_against_avg']
+            st.metric("Ratio défense", f"{defense_ratio:.2f}")
+        
+        with col3:
+            attack_power = (home_stats['goals_for_avg'] + away_stats['goals_for_avg']) / 2
+            st.metric("Puissance offensive", f"{attack_power:.1f}")
+    
+    def _display_value_bets(self):
+        """Affiche les value bets"""
+        st.title("💰 Value Bets")
+        
+        # Filtrer les value bets
+        st.subheader("🔍 Scanner les Value Bets")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            # Graphique à barres comparatif
-            categories = ['Attack', 'Defense', 'Form', 'Possession']
-            home_values = [
-                home_stats['goals_for_avg'] / 3,
-                (3 - home_stats['goals_against_avg']) / 3,
-                home_stats['form_score'],
-                home_stats['possession'] / 100
-            ]
-            away_values = [
-                away_stats['goals_for_avg'] / 3,
-                (3 - away_stats['goals_against_avg']) / 3,
-                away_stats['form_score'],
-                away_stats['possession'] / 100
-            ]
-            
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                name=match['home'],
-                x=categories,
-                y=home_values,
-                marker_color=Config.COLORS['primary']
-            ))
-            fig.add_trace(go.Bar(
-                name=match['away'],
-                x=categories,
-                y=away_values,
-                marker_color=Config.COLORS['secondary']
-            ))
-            
-            fig.update_layout(
-                barmode='group',
-                height=300,
-                title="Team Strength Comparison"
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+            min_value = st.slider("Valeur minimum (%)", 0, 20, 5)
         
         with col2:
-            # Graphique radar
-            categories = ['Attack', 'Defense', 'Midfield', 'Form', 'Consistency']
-            home_radar = [
-                home_stats['goals_for_avg'] / 2.5,
-                (2.5 - home_stats['goals_against_avg']) / 2.5,
-                home_stats['possession'] / 70,
-                home_stats['form_score'],
-                random.uniform(0.6, 0.9)
-            ]
-            away_radar = [
-                away_stats['goals_for_avg'] / 2.5,
-                (2.5 - away_stats['goals_against_avg']) / 2.5,
-                away_stats['possession'] / 70,
-                away_stats['form_score'],
-                random.uniform(0.6, 0.9)
-            ]
-            
-            fig = go.Figure()
-            
-            fig.add_trace(go.Scatterpolar(
-                r=home_radar,
-                theta=categories,
-                fill='toself',
-                name=match['home']
-            ))
-            fig.add_trace(go.Scatterpolar(
-                r=away_radar,
-                theta=categories,
-                fill='toself',
-                name=match['away']
-            ))
-            
-            fig.update_layout(
-                polar=dict(radialaxis=dict(visible=True)),
-                height=300,
-                title="Radar Comparison"
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-    
-    def _display_betting_insights(self, match):
-        """Affiche les insights de pari"""
-        st.subheader("💰 Betting Insights")
+            min_confidence = st.slider("Confiance AI minimum", 50, 90, 65)
         
-        # Analyse de valeur
-        home_stats = self.data_manager.get_team_stats(match['home'])
-        away_stats = self.data_manager.get_team_stats(match['away'])
-        h2h_stats = self.data_manager.get_h2h_stats(match['home'], match['away'])
-        
-        prediction = self.predictor.predict_match(home_stats, away_stats, h2h_stats)
-        
-        # Analyser chaque marché
-        markets = [
-            {'name': 'Home Win', 'probability': prediction['probabilities']['home_win'], 'odds': match['odds']['1']},
-            {'name': 'Draw', 'probability': prediction['probabilities']['draw'], 'odds': match['odds']['N']},
-            {'name': 'Away Win', 'probability': prediction['probabilities']['away_win'], 'odds': match['odds']['2']},
-            {'name': 'Over 2.5', 'probability': 0.45, 'odds': match['odds']['over_2.5']}
-        ]
-        
-        value_bets = []
-        
-        for market in markets:
-            analysis = self.value_analyzer.analyze_value(market['probability'], market['odds'])
-            
-            if analysis['is_value_bet']:
-                value_bets.append({
-                    'market': market['name'],
-                    'odds': market['odds'],
-                    'probability': market['probability'],
-                    'value': analysis['value'],
-                    'expected_value': analysis['expected_value'],
-                    'fair_odds': analysis['fair_odds']
-                })
-        
-        if value_bets:
-            st.success(f"🎯 {len(value_bets)} Value Bets Detected!")
-            
-            for bet in value_bets:
-                with st.container():
-                    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-                    
-                    with col1:
-                        st.write(f"**{bet['market']}**")
-                        st.caption(f"Fair Odds: {bet['fair_odds']}")
-                    
-                    with col2:
-                        st.metric("Odds", bet['odds'])
-                    
-                    with col3:
-                        st.metric("Value", f"+{bet['value']}%")
-                    
-                    with col4:
-                        st.metric("EV", f"{bet['expected_value']:.3f}")
-                    
-                    st.divider()
-        else:
-            st.info("ℹ️ No significant value bets detected for this match.")
-        
-        # Calculateur de mise Kelly
-        st.divider()
-        st.subheader("🏦 Kelly Calculator")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            bankroll = st.number_input(
-                "Bankroll (€)",
-                min_value=10,
-                max_value=100000,
-                value=st.session_state.bankroll
-            )
-        
-        with col2:
-            selected_market = st.selectbox(
-                "Select Market",
-                [m['name'] for m in markets]
-            )
-            
-            # Trouver la probabilité correspondante
-            selected_prob = next((m['probability'] for m in markets if m['name'] == selected_market), 0.5)
-            selected_odds = next((m['odds'] for m in markets if m['name'] == selected_market), 2.0)
-        
-        with col3:
-            probability = st.slider(
-                "Your Probability Estimate (%)",
-                0, 100,
-                int(selected_prob * 100)
-            ) / 100
-            
-            odds = st.number_input(
-                "Odds",
-                value=float(selected_odds),
-                min_value=1.1,
-                max_value=100.0,
-                step=0.1
-            )
-        
-        # Calculs
-        kelly_fraction = self.value_analyzer.calculate_kelly_criterion(probability, odds, bankroll)
-        suggested_stake = self.value_analyzer.recommend_stake(bankroll, kelly_fraction, st.session_state.risk_profile)
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Kelly Fraction", f"{kelly_fraction*100:.1f}%")
-        
-        with col2:
-            st.metric("Suggested Stake", f"€{suggested_stake:.2f}")
-        
-        with col3:
-            st.metric("Max Exposure", f"€{bankroll * 0.1:.2f}")
-    
-    def _display_value_bets(self):
-        """Affiche la page des value bets"""
-        st.title("💰 Value Bet Detection")
-        
-        # Filtrer les value bets
-        st.subheader("🔍 Scan for Value Bets")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            min_value = st.slider("Min Value (%)", 0, 50, 5)
-        
-        with col2:
-            min_confidence = st.slider("Min AI Confidence", 50, 95, 70)
-        
-        with col3:
-            max_stake = st.slider("Max Stake (%)", 1, 20, 10)
-        
-        if st.button("🔍 Scan All Matches", type="primary", use_container_width=True):
-            with st.spinner("Scanning for value bets..."):
-                time.sleep(2)
+        if st.button("🔍 Scanner tous les matchs", type="primary", use_container_width=True):
+            with st.spinner("Recherche de value bets..."):
+                time.sleep(1)
                 self._display_value_bets_results(min_value, min_confidence)
     
     def _display_value_bets_results(self, min_value, min_confidence):
         """Affiche les résultats des value bets"""
-        # Simuler la détection de value bets
         value_bets = []
         
-        for match in self.data_manager.matches[:3]:  # Analyser 3 matchs
-            home_stats = self.data_manager.get_team_stats(match['home'])
-            away_stats = self.data_manager.get_team_stats(match['away'])
-            h2h_stats = self.data_manager.get_h2h_stats(match['home'], match['away'])
+        # Analyser quelques matchs
+        for match in self.data.matches[:4]:
+            home_stats = self.data.get_team_stats(match['home'])
+            away_stats = self.data.get_team_stats(match['away'])
+            h2h_stats = self.data.get_h2h_stats(match['home'], match['away'])
             
-            prediction = self.predictor.predict_match(home_stats, away_stats, h2h_stats)
+            prediction = self.ai.predict(match['home'], match['away'], home_stats, away_stats, h2h_stats)
             
             # Vérifier la confiance
             if prediction['confidence'] * 100 >= min_confidence:
                 # Analyser les marchés
                 markets = [
-                    {'name': f"{match['home']} Win", 'probability': prediction['probabilities']['home_win'], 'odds': match['odds']['1']},
-                    {'name': "Draw", 'probability': prediction['probabilities']['draw'], 'odds': match['odds']['N']},
-                    {'name': f"{match['away']} Win", 'probability': prediction['probabilities']['away_win'], 'odds': match['odds']['2']}
+                    ('1', match['odds']['1'], prediction['home_win']),
+                    ('N', match['odds']['N'], prediction['draw']),
+                    ('2', match['odds']['2'], prediction['away_win'])
                 ]
                 
-                for market in markets:
-                    analysis = self.value_analyzer.analyze_value(market['probability'], market['odds'])
+                for market_name, odds, probability in markets:
+                    analysis = self.analyzer.calculate_value(probability, odds)
                     
-                    if analysis['value'] >= min_value:
+                    if analysis['is_value'] and analysis['value_percent'] >= min_value:
                         value_bets.append({
                             'match': f"{match['home']} vs {match['away']}",
-                            'market': market['name'],
-                            'odds': market['odds'],
-                            'probability': market['probability'] * 100,
-                            'value': analysis['value'],
+                            'market': market_name,
+                            'odds': odds,
+                            'probability': probability,
+                            'value': analysis['value_percent'],
                             'confidence': prediction['confidence'] * 100,
                             'league': match['league']
                         })
         
         if value_bets:
-            st.success(f"🎯 Found {len(value_bets)} Value Bets!")
+            st.success(f"🎯 {len(value_bets)} Value Bets trouvées!")
             
             for bet in value_bets:
                 with st.container():
@@ -1414,37 +1036,32 @@ class TipserProApp:
                                 <p>🏆 {bet['league']} | 🎯 {bet['market']}</p>
                             </div>
                             <div>
-                                <span class="badge badge-premium">+{bet['value']}% Value</span>
-                                <span class="badge badge-info">{bet['confidence']:.1f}% AI Confidence</span>
+                                <span class="badge badge-premium">+{bet['value']}% Valeur</span>
                             </div>
                         </div>
                         
                         <div style="display: flex; justify-content: space-around; margin: 20px 0;">
                             <div style="text-align: center;">
-                                <h5>Odds</h5>
+                                <h5>Cote</h5>
                                 <h3>{bet['odds']}</h3>
                             </div>
                             <div style="text-align: center;">
-                                <h5>Probability</h5>
+                                <h5>Probabilité</h5>
                                 <h3>{bet['probability']:.1f}%</h3>
                             </div>
                             <div style="text-align: center;">
-                                <h5>Value</h5>
+                                <h5>Valeur</h5>
                                 <h3>+{bet['value']}%</h3>
                             </div>
-                        </div>
-                        
-                        <div style="text-align: center;">
-                            <h4>💰 Expected Value: {(bet['probability']/100 * (bet['odds'] - 1) - (1 - bet['probability']/100)):.3f}</h4>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # Bouton pour placer le pari
+                    # Boutons
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.button(f"📊 Analyze", key=f"analyze_val_{bet['match']}", use_container_width=True):
-                            match_to_select = next((m for m in self.data_manager.matches 
+                        if st.button("📊 Analyser", key=f"analyze_vb_{bet['match']}", use_container_width=True):
+                            match_to_select = next((m for m in self.data.matches 
                                                   if f"{m['home']} vs {m['away']}" == bet['match']), None)
                             if match_to_select:
                                 st.session_state.selected_match = match_to_select
@@ -1452,67 +1069,41 @@ class TipserProApp:
                                 st.rerun()
                     
                     with col2:
-                        if st.button(f"💰 Place Bet", key=f"bet_{bet['match']}", use_container_width=True, type="primary"):
-                            st.success(f"Bet placed on {bet['match']} - {bet['market']}")
+                        if st.button("💰 Placer pari", key=f"bet_vb_{bet['match']}", use_container_width=True, type="primary"):
+                            st.success(f"Pari placé sur {bet['match']} - {bet['market']}")
                     
                     st.divider()
         else:
-            st.info("ℹ️ No value bets found with current filters.")
+            st.info("ℹ️ Aucune value bet trouvée avec les filtres actuels.")
     
     def _display_portfolio(self):
         """Affiche le portfolio"""
-        st.title("💰 My Portfolio")
+        st.title("💰 Mon Portfolio")
         
         # Résumé
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Active Bets", "3", "+1")
+            st.metric("Paris actifs", "3")
         
         with col2:
-            st.metric("Total Investment", "€150")
+            st.metric("Investissement", "€150")
         
         with col3:
-            st.metric("Potential Profit", "€285")
+            st.metric("Gains potentiels", "€285")
         
         with col4:
-            st.metric("ROI", "+90%", "+5.2%")
+            st.metric("ROI projeté", "+90%")
         
         st.divider()
         
-        # Graphique de performance
-        st.subheader("📈 Performance Chart")
-        
-        dates = pd.date_range(start='2024-01-01', periods=30, freq='D')
-        portfolio_value = [1000 + i * 10 + random.randint(-20, 30) for i in range(30)]
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=dates,
-            y=portfolio_value,
-            mode='lines',
-            line=dict(color=Config.COLORS['success'], width=3),
-            fill='tozeroy',
-            fillcolor='rgba(102, 126, 234, 0.2)'
-        ))
-        
-        fig.update_layout(
-            height=300,
-            template='plotly_white',
-            xaxis_title="Date",
-            yaxis_title="Portfolio Value (€)"
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Paris actifs
-        st.divider()
-        st.subheader("📊 Active Bets")
+        # Paris en cours
+        st.subheader("📊 Paris Actifs")
         
         active_bets = [
-            {"match": "PSG vs Marseille", "type": "Over 2.5", "odds": 1.85, "stake": "€50", "status": "⏳ Pending"},
-            {"match": "Real Madrid vs Barca", "type": "1", "odds": 2.10, "stake": "€60", "status": "⏳ Pending"},
-            {"match": "Liverpool vs City", "type": "BTTS Yes", "odds": 1.65, "stake": "€40", "status": "⏳ Live"}
+            {"match": "PSG vs Marseille", "type": "Over 2.5", "odds": 1.85, "stake": "€50", "status": "⏳ En attente"},
+            {"match": "Real Madrid vs Barca", "type": "1", "odds": 2.10, "stake": "€60", "status": "⏳ En attente"},
+            {"match": "City vs Liverpool", "type": "BTTS Yes", "odds": 1.65, "stake": "€40", "status": "⏳ En cours"}
         ]
         
         for bet in active_bets:
@@ -1523,88 +1114,88 @@ class TipserProApp:
                 with col2:
                     st.code(bet['type'])
                 with col3:
-                    st.metric("Odds", bet['odds'])
+                    st.metric("Cote", bet['odds'])
                 with col4:
                     st.write(bet['stake'])
                 with col5:
-                    if bet['status'] == '⏳ Live':
+                    if bet['status'] == '⏳ En cours':
                         st.warning(bet['status'])
                     else:
                         st.info(bet['status'])
                 st.divider()
+        
+        # Graphique de performance (simple)
+        st.subheader("📈 Performance")
+        
+        # Créer un DataFrame simple
+        dates = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
+        values = [1000, 1020, 1045, 1060, 1080, 1100, 1124]
+        
+        df = pd.DataFrame({
+            'Jour': dates,
+            'Bankroll': values
+        })
+        
+        st.line_chart(df.set_index('Jour'))
     
     def _display_settings(self):
-        """Affiche les paramètres"""
-        st.title("⚙️ Settings")
+        """Affiche les réglages"""
+        st.title("⚙️ Réglages")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("👤 User Profile")
+            st.subheader("👤 Profil")
             
             st.selectbox(
-                "Subscription Level",
-                ["Free", "Basic", "Pro", "Enterprise"],
-                index=2,
-                key="subscription_level"
+                "Niveau d'abonnement",
+                ["Gratuit", "Basique", "Pro", "Entreprise"],
+                index=2
             )
             
-            st.number_input(
+            bankroll = st.number_input(
                 "Bankroll (€)",
                 min_value=100,
-                max_value=100000,
+                max_value=10000,
                 value=st.session_state.bankroll,
-                step=100,
-                key="bankroll_input"
+                step=100
             )
             
-            st.selectbox(
-                "Risk Profile",
-                ["Conservative", "Moderate", "Aggressive"],
-                index=1,
-                key="risk_profile_select"
+            risk_profile = st.selectbox(
+                "Profil de risque",
+                ["Conservateur", "Modéré", "Agressif"],
+                index=1
             )
         
         with col2:
-            st.subheader("🔧 Betting Settings")
+            st.subheader("🔧 Paramètres de pari")
             
-            st.number_input(
-                "Max Stake (%)",
-                min_value=1,
-                max_value=20,
-                value=5,
-                key="max_stake_percent"
-            )
+            max_stake = st.slider("Mise maximum (%)", 1, 20, 10)
             
-            st.slider(
-                "Min Value Bet Threshold (%)",
-                0, 20, 5,
-                key="min_value_threshold"
-            )
+            min_value = st.slider("Valeur minimum (%)", 0, 20, 5)
             
-            st.checkbox("Email Notifications", value=True, key="email_notifications")
-            st.checkbox("Value Bet Alerts", value=True, key="value_alerts")
-            st.checkbox("Dark Mode", value=False, key="dark_mode")
+            st.checkbox("Notifications", value=True)
+            st.checkbox("Alertes value bets", value=True)
         
-        # Boutons d'action
+        # Boutons
         st.divider()
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            if st.button("💾 Save Settings", type="primary", use_container_width=True):
-                st.session_state.bankroll = st.session_state.bankroll_input
-                st.session_state.risk_profile = st.session_state.risk_profile_select.lower()
-                st.success("Settings saved successfully!")
+            if st.button("💾 Sauvegarder", type="primary", use_container_width=True):
+                st.session_state.bankroll = bankroll
+                st.session_state.risk_profile = risk_profile.lower()
+                st.success("Réglages sauvegardés!")
         
         with col2:
-            if st.button("🔄 Reset to Default", use_container_width=True):
+            if st.button("🔄 Réinitialiser", use_container_width=True):
                 st.session_state.bankroll = 1000
                 st.session_state.risk_profile = 'moderate'
                 st.rerun()
         
         with col3:
-            if st.button("📤 Export Data", use_container_width=True):
-                st.info("Export feature coming soon...")
+            if st.button("📤 Exporter", use_container_width=True):
+                st.info("Fonctionnalité à venir...")
 
 # =============================================================================
 # POINT D'ENTRÉE
