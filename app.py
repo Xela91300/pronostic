@@ -206,7 +206,22 @@ class AdvancedDataCollector:
                         'stadium': 'Orange Vélodrome',
                         'city': 'Marseille'
                     },
-                    # ... autres équipes
+                    'Real Madrid': {
+                        'attack': 97, 'defense': 90, 'midfield': 94,
+                        'form': 'WDWWW', 'goals_avg': 2.6,
+                        'home_strength': 95, 'away_strength': 92,
+                        'coach': 'Carlo Ancelotti',
+                        'stadium': 'Santiago Bernabéu',
+                        'city': 'Madrid'
+                    },
+                    'Barcelona': {
+                        'attack': 92, 'defense': 87, 'midfield': 90,
+                        'form': 'LDWWD', 'goals_avg': 2.2,
+                        'home_strength': 93, 'away_strength': 88,
+                        'coach': 'Xavi Hernandez',
+                        'stadium': 'Spotify Camp Nou',
+                        'city': 'Barcelona'
+                    },
                 },
                 'scheduled_matches': [
                     {
@@ -216,7 +231,6 @@ class AdvancedDataCollector:
                         'league': 'Ligue 1',
                         'stadium': 'Parc des Princes'
                     },
-                    # ... autres matchs
                 ]
             },
             'basketball': {
@@ -229,7 +243,14 @@ class AdvancedDataCollector:
                         'arena': 'TD Garden',
                         'city': 'Boston'
                     },
-                    # ... autres équipes
+                    'LA Lakers': {
+                        'offense': 114, 'defense': 115, 'pace': 100,
+                        'form': 'WLWLD', 'points_avg': 114.7,
+                        'home_strength': 92, 'away_strength': 88,
+                        'coach': 'Darvin Ham',
+                        'arena': 'Crypto.com Arena',
+                        'city': 'Los Angeles'
+                    },
                 },
                 'scheduled_matches': [
                     {
@@ -298,6 +319,161 @@ class AdvancedDataCollector:
                 matches.append(match_info)
         
         return matches
+    
+    def _get_local_scheduled_matches(self, sport: str, league: str, days_ahead: int) -> List[Dict]:
+        """Récupère les matchs locaux programmés"""
+        return self.local_data.get(sport, {}).get('scheduled_matches', [])
+    
+    def get_team_data(self, sport: str, team_name: str, league: str = None) -> Dict:
+        """Récupère les données d'une équipe en temps réel"""
+        cache_key = f"{sport}_{team_name}_{league}"
+        
+        # Vérifier le cache
+        if cache_key in self.cache:
+            cached_time, cached_data = self.cache[cache_key]
+            if time.time() - cached_time < self.cache_timeout:
+                return cached_data
+        
+        try:
+            # Vérifier dans les données locales
+            local_teams = self.local_data.get(sport, {}).get('teams', {})
+            
+            if team_name in local_teams:
+                data = {**local_teams[team_name], 'source': 'local_db'}
+                self.cache[cache_key] = (time.time(), data)
+                return data
+            
+            # Chercher correspondance partielle
+            for known_team, data in local_teams.items():
+                if team_name.lower() in known_team.lower() or known_team.lower() in team_name.lower():
+                    data = {**data, 'source': 'local_db'}
+                    self.cache[cache_key] = (time.time(), data)
+                    return data
+            
+            # Générer des données réalistes
+            if sport == 'football':
+                data = self._generate_football_stats(team_name)
+            else:
+                data = self._generate_basketball_stats(team_name)
+            
+            self.cache[cache_key] = (time.time(), data)
+            return data
+                
+        except Exception as e:
+            print(f"Erreur récupération équipe: {e}")
+            if sport == 'football':
+                return self._generate_football_stats(team_name)
+            else:
+                return self._generate_basketball_stats(team_name)
+    
+    def _generate_football_stats(self, team_name: str = None) -> Dict:
+        """Génère des statistiques football réalistes"""
+        attack = random.randint(75, 95)
+        defense = random.randint(75, 95)
+        midfield = random.randint(75, 95)
+        
+        return {
+            'attack': attack,
+            'defense': defense,
+            'midfield': midfield,
+            'form': random.choice(['WWDLW', 'WDWLD', 'LDWWD', 'DWWDL']),
+            'goals_avg': round(random.uniform(1.2, 2.8), 1),
+            'home_strength': random.randint(80, 95),
+            'away_strength': random.randint(75, 90),
+            'team_name': team_name or 'Team',
+            'source': 'generated',
+            'city': random.choice(['Paris', 'Lyon', 'Marseille', 'Lille', 'Bordeaux']),
+            'stadium': f"Stade de {team_name or 'Team'}"
+        }
+    
+    def _generate_basketball_stats(self, team_name: str = None) -> Dict:
+        """Génère des statistiques basketball réalistes"""
+        offense = random.randint(100, 120)
+        defense = random.randint(100, 120)
+        
+        return {
+            'offense': offense,
+            'defense': defense,
+            'pace': random.randint(95, 105),
+            'form': random.choice(['WWLWW', 'WLWWL', 'LWWLD']),
+            'points_avg': round(random.uniform(105.0, 120.0), 1),
+            'home_strength': random.randint(85, 98),
+            'away_strength': random.randint(80, 95),
+            'team_name': team_name or 'Team',
+            'source': 'generated',
+            'city': random.choice(['Boston', 'Los Angeles', 'Chicago', 'Miami', 'New York']),
+            'arena': f"{team_name or 'Team'} Arena"
+        }
+    
+    def get_league_data(self, sport: str, league_name: str) -> Dict:
+        """Récupère les données de la ligue"""
+        cache_key = f"league_{sport}_{league_name}"
+        
+        if cache_key in self.cache:
+            cached_time, cached_data = self.cache[cache_key]
+            if time.time() - cached_time < self.cache_timeout:
+                return cached_data
+        
+        try:
+            return self._get_local_league_data(sport, league_name)
+                
+        except:
+            return self._get_local_league_data(sport, league_name)
+    
+    def _get_local_league_data(self, sport: str, league_name: str) -> Dict:
+        """Récupère les données locales de ligue"""
+        local_league_data = {
+            'football': {
+                'Ligue 1': {'goals_avg': 2.7, 'draw_rate': 0.28, 'home_win_rate': 0.45},
+                'Premier League': {'goals_avg': 2.9, 'draw_rate': 0.25, 'home_win_rate': 0.47},
+                'La Liga': {'goals_avg': 2.6, 'draw_rate': 0.27, 'home_win_rate': 0.46},
+                'Bundesliga': {'goals_avg': 3.1, 'draw_rate': 0.22, 'home_win_rate': 0.48},
+                'Serie A': {'goals_avg': 2.5, 'draw_rate': 0.30, 'home_win_rate': 0.44},
+            },
+            'basketball': {
+                'NBA': {'points_avg': 115.0, 'pace': 99.5, 'home_win_rate': 0.58},
+                'EuroLeague': {'points_avg': 82.5, 'pace': 72.0, 'home_win_rate': 0.62},
+                'LNB Pro A': {'points_avg': 83.0, 'pace': 71.5, 'home_win_rate': 0.60},
+            }
+        }
+        
+        return local_league_data.get(sport, {}).get(league_name, {
+            'goals_avg': 2.7,
+            'draw_rate': 0.25,
+            'points_avg': 100.0,
+            'pace': 90.0,
+            'home_win_rate': 0.60,
+            'source': 'local_default'
+        })
+    
+    def get_head_to_head(self, sport: str, home_team: str, away_team: str, league: str = None) -> Dict:
+        """Récupère l'historique des confrontations"""
+        cache_key = f"h2h_{sport}_{home_team}_{away_team}"
+        
+        if cache_key in self.cache:
+            cached_time, cached_data = self.cache[cache_key]
+            if time.time() - cached_time < self.cache_timeout:
+                return cached_data
+        
+        try:
+            return self._generate_h2h_stats(home_team, away_team)
+                
+        except:
+            return self._generate_h2h_stats(home_team, away_team)
+    
+    def _generate_h2h_stats(self, home_team: str, away_team: str) -> Dict:
+        """Génère des statistiques H2H réalistes"""
+        return {
+            'total_matches': random.randint(5, 30),
+            'home_wins': random.randint(2, 15),
+            'away_wins': random.randint(2, 15),
+            'draws': random.randint(1, 8),
+            'home_win_rate': random.uniform(0.3, 0.7),
+            'avg_goals_home': round(random.uniform(1.0, 2.5), 1),
+            'avg_goals_away': round(random.uniform(0.5, 2.0), 1),
+            'last_5_results': random.choice(['WWDLW', 'WDWLD', 'LDWWD', 'DWWDL']),
+            'source': 'generated'
+        }
     
     def get_injuries_suspensions(self, sport: str, team_name: str) -> List[PlayerInjury]:
         """Récupère les blessures et suspensions"""
@@ -380,7 +556,7 @@ class AdvancedDataCollector:
             temp = random.uniform(20, 35)
             precip_chance = random.uniform(0.1, 0.3)
             condition = random.choice(['sunny', 'cloudy'])
-        else:  Printemps/Automne
+        else:  # Printemps/Automne
             temp = random.uniform(10, 20)
             precip_chance = random.uniform(0.2, 0.5)
             condition = random.choice(['cloudy', 'rainy', 'sunny'])
@@ -1309,7 +1485,7 @@ class AdvancedPredictionEngine:
                 'home_team': home_team,
                 'away_team': away_team,
                 'league': league,
-                'date': date.today().strftime('%Y-%m-%d')
+                'date': date.today().strftime('%Y-%m-d')
             },
             'probabilities': {'home_win': 33.3, 'draw': 33.3, 'away_win': 33.3} if sport == 'football' else {'home_win': 50.0, 'away_win': 50.0},
             'recommendations': {
