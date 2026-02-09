@@ -1,722 +1,1020 @@
-# app.py - Système de Pronostics Football avec Sélection de Matchs
-# Version corrigée
+# tipser_pro.py - Système Professionnel de Pronostics Football
+# Version Pro avec Intelligence Artificielle et Analyse Avancée
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, date, timedelta
-import random
-import time
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
 import requests
-from typing import Dict, List
+import json
+from typing import Dict, List, Tuple
+import hashlib
+import time
+import warnings
+warnings.filterwarnings('ignore')
 
 # =============================================================================
-# CONFIGURATION DES APIS
+# CONFIGURATION AVANCÉE
 # =============================================================================
 
-class APIConfig:
-    """Configuration des APIs externes"""
+class ProConfig:
+    """Configuration professionnelle"""
     
-    # VOTRE CLÉ API RÉELLE POUR LE FOOTBALL
-    FOOTBALL_API_KEY = "33a972705943458ebcbcae6b56e4dee0"
+    # API Configuration (à remplacer avec vos clés réelles)
+    API_CONFIG = {
+        'football': {
+            'key': "33a972705943458ebcbcae6b56e4dee0",
+            'url': "https://v3.football.api-sports.io",
+            'plan': 'pro'  # basic/pro/enterprise
+        },
+        'odds': {
+            'key': "your_odds_api_key_here",
+            'url': "https://api.the-odds-api.com/v4"
+        }
+    }
     
-    # URLs des APIs
-    FOOTBALL_API_URL = "https://v3.football.api-sports.io"
+    # Paramètres d'analyse
+    ANALYSIS_PARAMS = {
+        'recent_form_weight': 0.3,
+        'h2h_weight': 0.2,
+        'home_away_weight': 0.25,
+        'injury_weight': 0.15,
+        'motivation_weight': 0.1
+    }
+    
+    # Seuils de confiance
+    CONFIDENCE_THRESHOLDS = {
+        'high': 0.75,
+        'medium': 0.6,
+        'low': 0.45
+    }
     
     @staticmethod
-    def get_football_headers():
-        """Retourne les headers avec votre clé API réelle"""
+    def get_headers(api_type='football'):
+        """Retourne les headers API"""
         return {
             'x-rapidapi-host': 'v3.football.api-sports.io',
-            'x-rapidapi-key': APIConfig.FOOTBALL_API_KEY
+            'x-rapidapi-key': ProConfig.API_CONFIG[api_type]['key']
         }
 
 # =============================================================================
-# CLIENT API FOOTBALL
+# INTELLIGENCE ARTIFICIELLE & ANALYSE
 # =============================================================================
 
-class FootballAPIClient:
-    """Client pour l'API Football"""
+class AIPredictor:
+    """Système de prédiction par IA"""
     
     def __init__(self):
-        self.base_url = APIConfig.FOOTBALL_API_URL
-        self.headers = APIConfig.get_football_headers()
-        self.timeout = 30
+        self.model_weights = self._load_model_weights()
         
-    def test_api_key(self):
-        """Teste si la clé API fonctionne"""
-        try:
-            response = requests.get(
-                f"{self.base_url}/status",
-                headers=self.headers,
-                timeout=self.timeout
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('response', {}).get('account'):
-                    return True, "✅ Clé API valide"
-                else:
-                    return False, "❌ Clé API invalide"
-            elif response.status_code == 403:
-                return False, "❌ Clé API refusée"
-            elif response.status_code == 429:
-                return False, "❌ Trop de requêtes"
-            else:
-                return False, f"❌ Erreur {response.status_code}"
-                
-        except Exception as e:
-            return False, f"❌ Erreur de connexion: {str(e)}"
+    def _load_model_weights(self):
+        """Charge les poids du modèle (simulé)"""
+        return {
+            'home_advantage': 0.15,
+            'form_momentum': 0.25,
+            'goal_scoring': 0.20,
+            'defense_strength': 0.18,
+            'h2h_history': 0.12,
+            'injuries': 0.10
+        }
     
-    def get_todays_matches(self):
-        """Récupère les matchs d'aujourd'hui"""
-        today = date.today().strftime('%Y-%m-%d')
+    def predict_match(self, home_stats: Dict, away_stats: Dict, h2h_data: List) -> Dict:
+        """Prédit le résultat d'un match"""
         
-        try:
-            response = requests.get(
-                f"{self.base_url}/fixtures",
-                headers=self.headers,
-                params={'date': today, 'timezone': 'Europe/Paris'},
-                timeout=self.timeout
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                return self._parse_fixtures(data)
-            else:
-                return self._get_fallback_matches()
-                
-        except Exception as e:
-            return self._get_fallback_matches()
+        # Calcul des scores
+        home_score = self._calculate_team_score(home_stats, is_home=True)
+        away_score = self._calculate_team_score(away_stats, is_home=False)
+        
+        # Ajustement historique
+        h2h_adjustment = self._calculate_h2h_adjustment(h2h_data)
+        home_score += h2h_adjustment['home']
+        away_score += h2h_adjustment['away']
+        
+        # Normalisation
+        total = home_score + away_score
+        home_prob = home_score / total if total > 0 else 0.5
+        away_prob = away_score / total if total > 0 else 0.5
+        
+        # Probabilité de match nul
+        draw_prob = self._calculate_draw_probability(home_stats, away_stats)
+        
+        # Normalisation finale
+        total_probs = home_prob + away_prob + draw_prob
+        home_prob /= total_probs
+        away_prob /= total_probs
+        draw_prob /= total_probs
+        
+        return {
+            'home_win_probability': round(home_prob * 100, 1),
+            'draw_probability': round(draw_prob * 100, 1),
+            'away_win_probability': round(away_prob * 100, 1),
+            'expected_goals_home': round(home_stats.get('avg_goals_for', 1.5), 1),
+            'expected_goals_away': round(away_stats.get('avg_goals_for', 1.2), 1),
+            'confidence_score': self._calculate_confidence(home_stats, away_stats)
+        }
     
-    def get_upcoming_matches(self, days: int = 7):
-        """Récupère les matchs à venir"""
-        end_date = (date.today() + timedelta(days=days)).strftime('%Y-%m-%d')
+    def _calculate_team_score(self, stats: Dict, is_home: bool) -> float:
+        """Calcule le score d'une équipe"""
+        score = 0
         
-        params = {
-            'from': date.today().strftime('%Y-%m-%d'),
-            'to': end_date,
-            'status': 'NS',
-            'timezone': 'Europe/Paris'
+        # Avantage domicile
+        if is_home:
+            score += self.model_weights['home_advantage'] * 2
+        
+        # Forme récente
+        form_score = self._calculate_form_score(stats.get('recent_form', 'DDDDD'))
+        score += self.model_weights['form_momentum'] * form_score
+        
+        # Capacité offensive
+        goal_score = stats.get('avg_goals_for', 1.0) / 3.0  # Normalisé
+        score += self.model_weights['goal_scoring'] * goal_score
+        
+        # Solidité défensive
+        defense_score = 1 - (stats.get('avg_goals_against', 1.5) / 3.0)
+        score += self.model_weights['defense_strength'] * defense_score
+        
+        # Ajustement blessures
+        injury_factor = 1 - (stats.get('missing_players', 0) * 0.05)
+        score *= injury_factor
+        
+        return max(0.1, score)
+    
+    def _calculate_form_score(self, form_string: str) -> float:
+        """Calcule le score de forme (W=win, D=draw, L=loss)"""
+        if not form_string or len(form_string) < 3:
+            return 0.5
+        
+        weights = {'W': 1.0, 'D': 0.5, 'L': 0.0}
+        recent_form = form_string[-5:]  # 5 derniers matchs
+        
+        score = sum(weights.get(result, 0.5) for result in recent_form)
+        return score / len(recent_form)
+    
+    def _calculate_h2h_adjustment(self, h2h_data: List) -> Dict:
+        """Ajustement basé sur l'historique des confrontations"""
+        if not h2h_data or len(h2h_data) < 3:
+            return {'home': 0, 'away': 0}
+        
+        home_wins = sum(1 for match in h2h_data if match['home_winner'])
+        away_wins = sum(1 for match in h2h_data if match['away_winner'])
+        
+        home_adj = (home_wins - away_wins) * 0.05
+        away_adj = (away_wins - home_wins) * 0.05
+        
+        return {'home': home_adj, 'away': away_adj}
+    
+    def _calculate_draw_probability(self, home_stats: Dict, away_stats: Dict) -> float:
+        """Calcule la probabilité de match nul"""
+        # Basé sur la différence de niveau
+        home_strength = home_stats.get('team_strength', 0.5)
+        away_strength = away_stats.get('team_strength', 0.5)
+        
+        strength_diff = abs(home_strength - away_strength)
+        draw_prob = 0.3 * (1 - strength_diff)  # Plus les équipes sont proches, plus de chances de nul
+        
+        # Ajustement basé sur les stats défensives
+        home_defense = home_stats.get('defense_rating', 0.5)
+        away_defense = away_stats.get('defense_rating', 0.5)
+        
+        draw_prob += 0.1 * ((home_defense + away_defense) / 2)
+        
+        return min(0.45, max(0.1, draw_prob))
+    
+    def _calculate_confidence(self, home_stats: Dict, away_stats: Dict) -> float:
+        """Calcule le score de confiance de la prédiction"""
+        confidence = 0.7  # Base
+        
+        # Plus de données = plus de confiance
+        if home_stats.get('matches_analyzed', 0) > 10 and away_stats.get('matches_analyzed', 0) > 10:
+            confidence += 0.1
+        
+        # Forme récente cohérente
+        home_form = home_stats.get('form_consistency', 0.5)
+        away_form = away_stats.get('form_consistency', 0.5)
+        confidence += (home_form + away_form) * 0.1
+        
+        return min(0.95, max(0.3, confidence))
+
+class ValueBetDetector:
+    """Détecte les paris à valeur"""
+    
+    def __init__(self):
+        self.min_value_threshold = 0.05  # 5% de valeur minimum
+        
+    def analyze_odds(self, predictions: Dict, market_odds: Dict) -> List[Dict]:
+        """Analyse les cotes et détecte les value bets"""
+        value_bets = []
+        
+        # Marchés à analyser
+        markets = {
+            'home_win': ('1', predictions['home_win_probability'] / 100),
+            'draw': ('N', predictions['draw_probability'] / 100),
+            'away_win': ('2', predictions['away_win_probability'] / 100),
+            'over_2_5': ('Over 2.5', 0.45),  # Probabilité estimée
+            'under_2_5': ('Under 2.5', 0.55)
         }
         
+        for bookmaker, odds in market_odds.items():
+            for market_key, (market_name, probability) in markets.items():
+                if market_name in odds:
+                    fair_odds = 1 / probability
+                    offered_odds = odds[market_name]
+                    
+                    if offered_odds > fair_odds:
+                        value = (offered_odds / fair_odds) - 1
+                        
+                        if value >= self.min_value_threshold:
+                            value_bets.append({
+                                'bookmaker': bookmaker,
+                                'market': market_name,
+                                'odds': offered_odds,
+                                'fair_odds': round(fair_odds, 2),
+                                'value_percentage': round(value * 100, 1),
+                                'probability': round(probability * 100, 1),
+                                'expected_value': self._calculate_ev(probability, offered_odds),
+                                'stake_recommendation': self._recommend_stake(value, probability)
+                            })
+        
+        # Trier par valeur
+        value_bets.sort(key=lambda x: x['value_percentage'], reverse=True)
+        return value_bets
+    
+    def _calculate_ev(self, probability: float, odds: float) -> float:
+        """Calcule la valeur attendue (Expected Value)"""
+        return (probability * (odds - 1)) - ((1 - probability) * 1)
+    
+    def _recommend_stake(self, value: float, probability: float) -> str:
+        """Recommande une mise selon le critère de Kelly"""
+        kelly_fraction = (probability * (value + 1) - 1) / value if value > 0 else 0
+        
+        if kelly_fraction > 0.1:
+            return "Forte (5-7% bankroll)"
+        elif kelly_fraction > 0.05:
+            return "Moyenne (3-5% bankroll)"
+        elif kelly_fraction > 0.02:
+            return "Légère (1-3% bankroll)"
+        else:
+            return "Observation"
+
+# =============================================================================
+# CLIENT API PROFESSIONNEL
+# =============================================================================
+
+class ProFootballClient:
+    """Client API professionnel avec cache"""
+    
+    def __init__(self):
+        self.base_url = ProConfig.API_CONFIG['football']['url']
+        self.headers = ProConfig.get_headers('football')
+        self.cache = {}
+        self.cache_duration = 300  # 5 minutes
+        
+    def get_match_with_details(self, match_id: int) -> Dict:
+        """Récupère un match avec tous les détails"""
+        cache_key = f"match_{match_id}"
+        
+        if cache_key in self.cache:
+            cached_data, timestamp = self.cache[cache_key]
+            if time.time() - timestamp < self.cache_duration:
+                return cached_data
+        
         try:
+            # Récupération des données détaillées
+            endpoints = [
+                ('fixture', {'id': match_id}),
+                ('statistics', {'fixture': match_id}),
+                ('events', {'fixture': match_id}),
+                ('lineups', {'fixture': match_id}),
+                ('headtohead', {'h2h': f"{match_id}"})  # Simplifié
+            ]
+            
+            match_data = {'id': match_id}
+            
+            for endpoint, params in endpoints:
+                try:
+                    response = requests.get(
+                        f"{self.base_url}/{endpoint}",
+                        headers=self.headers,
+                        params=params,
+                        timeout=10
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        match_data[endpoint] = data.get('response', [])
+                except:
+                    continue
+            
+            # Cache les données
+            self.cache[cache_key] = (match_data, time.time())
+            
+            return match_data
+            
+        except Exception as e:
+            return self._get_demo_match_details(match_id)
+    
+    def get_team_statistics(self, team_id: int, season: int = 2024) -> Dict:
+        """Récupère les statistiques détaillées d'une équipe"""
+        cache_key = f"team_stats_{team_id}_{season}"
+        
+        if cache_key in self.cache:
+            cached_data, timestamp = self.cache[cache_key]
+            if time.time() - timestamp < self.cache_duration:
+                return cached_data
+        
+        try:
+            params = {'team': team_id, 'season': season, 'league': 61}
             response = requests.get(
-                f"{self.base_url}/fixtures",
+                f"{self.base_url}/teams/statistics",
                 headers=self.headers,
                 params=params,
-                timeout=self.timeout
+                timeout=10
             )
             
             if response.status_code == 200:
-                data = response.json()
-                return self._parse_fixtures(data)
+                stats = response.json().get('response', {})
+                self.cache[cache_key] = (stats, time.time())
+                return stats
             else:
-                return self._get_fallback_matches()
+                return self._generate_team_stats(team_id)
                 
         except Exception as e:
-            return self._get_fallback_matches()
+            return self._generate_team_stats(team_id)
     
-    def _parse_fixtures(self, api_data):
-        """Parse les données d'API"""
-        matches = []
-        
-        if 'response' not in api_data:
-            return matches
-        
-        for fixture in api_data['response']:
-            try:
-                # Date du match
-                fixture_date = fixture['fixture']['date']
-                match_date = datetime.fromisoformat(fixture_date.replace('Z', '+00:00'))
-                
-                # Équipes
-                home_team = fixture['teams']['home']['name']
-                away_team = fixture['teams']['away']['name']
-                
-                # Ligue
-                league_info = fixture.get('league', {})
-                league_name = league_info.get('name', 'Ligue Inconnue')
-                league_country = league_info.get('country', 'Inconnu')
-                
-                match_info = {
-                    'id': fixture['fixture']['id'],
-                    'home_team': home_team,
-                    'away_team': away_team,
-                    'league': league_name,
-                    'country': league_country,
-                    'date': match_date,
-                    'status': fixture['fixture']['status']['short'],
-                    'venue': fixture['fixture']['venue']['name'] if fixture['fixture']['venue'] else 'Stade Inconnu',
-                    'home_team_id': fixture['teams']['home']['id'],
-                    'away_team_id': fixture['teams']['away']['id'],
-                    'league_id': league_info.get('id', 0)
+    def _generate_team_stats(self, team_id: int) -> Dict:
+        """Génère des statistiques simulées"""
+        return {
+            'form': ''.join(random.choices(['W', 'D', 'L'], weights=[40, 30, 30], k=5)),
+            'fixtures': {
+                'played': {'home': 10, 'away': 10, 'total': 20},
+                'wins': {'home': random.randint(5, 8), 'away': random.randint(3, 6), 'total': random.randint(8, 14)},
+                'draws': {'home': random.randint(1, 4), 'away': random.randint(2, 5), 'total': random.randint(3, 8)},
+                'loses': {'home': random.randint(1, 3), 'away': random.randint(2, 5), 'total': random.randint(3, 8)}
+            },
+            'goals': {
+                'for': {
+                    'total': {'home': random.randint(15, 25), 'away': random.randint(10, 20), 'total': random.randint(25, 45)},
+                    'average': {'home': round(random.uniform(1.2, 2.0), 1), 
+                               'away': round(random.uniform(1.0, 1.8), 1),
+                               'total': round(random.uniform(1.3, 1.9), 1)}
+                },
+                'against': {
+                    'total': {'home': random.randint(5, 15), 'away': random.randint(10, 20), 'total': random.randint(15, 35)},
+                    'average': {'home': round(random.uniform(0.5, 1.2), 1), 
+                               'away': round(random.uniform(1.0, 1.5), 1),
+                               'total': round(random.uniform(0.8, 1.4), 1)}
                 }
-                
-                matches.append(match_info)
-                
-            except Exception as e:
-                continue
-        
-        return matches
+            },
+            'team_strength': round(random.uniform(0.4, 0.9), 2)
+        }
     
-    def _get_fallback_matches(self):
-        """Retourne des matchs de démonstration"""
-        today = datetime.now()
-        matches = []
-        
-        # Matchs de démo
-        demo_matches = [
-            {
-                'id': 1001,
-                'home_team': 'Paris SG',
-                'away_team': 'Marseille',
-                'league': 'Ligue 1',
-                'country': 'France',
-                'date': today + timedelta(days=1, hours=20),
-                'status': 'NS',
-                'venue': 'Parc des Princes',
-                'home_team_id': 85,
-                'away_team_id': 81,
-                'league_id': 61
-            },
-            {
-                'id': 1002,
-                'home_team': 'Lyon',
-                'away_team': 'Monaco',
-                'league': 'Ligue 1',
-                'country': 'France',
-                'date': today + timedelta(days=2, hours=20),
-                'status': 'NS',
-                'venue': 'Groupama Stadium',
-                'home_team_id': 80,
-                'away_team_id': 91,
-                'league_id': 61
-            },
-            {
-                'id': 1003,
-                'home_team': 'Lille',
-                'away_team': 'Nice',
-                'league': 'Ligue 1',
-                'country': 'France',
-                'date': today + timedelta(days=1, hours=18),
-                'status': 'NS',
-                'venue': 'Stade Pierre-Mauroy',
-                'home_team_id': 79,
-                'away_team_id': 84,
-                'league_id': 61
-            },
-            {
-                'id': 1004,
-                'home_team': 'Real Madrid',
-                'away_team': 'Barcelona',
-                'league': 'La Liga',
-                'country': 'Spain',
-                'date': today + timedelta(days=3, hours=21),
-                'status': 'NS',
-                'venue': 'Santiago Bernabéu',
-                'home_team_id': 541,
-                'away_team_id': 529,
-                'league_id': 140
-            },
-            {
-                'id': 1005,
-                'home_team': 'Manchester City',
-                'away_team': 'Liverpool',
-                'league': 'Premier League',
-                'country': 'England',
-                'date': today + timedelta(days=2, hours=16),
-                'status': 'NS',
-                'venue': 'Etihad Stadium',
-                'home_team_id': 50,
-                'away_team_id': 40,
-                'league_id': 39
+    def _get_demo_match_details(self, match_id: int) -> Dict:
+        """Détails de démonstration pour un match"""
+        return {
+            'fixture': [{
+                'fixture': {'id': match_id, 'date': datetime.now().isoformat()},
+                'teams': {'home': {'name': 'Team A'}, 'away': {'name': 'Team B'}},
+                'goals': {'home': None, 'away': None},
+                'league': {'name': 'Demo League'}
+            }],
+            'statistics': [],
+            'events': [],
+            'lineups': []
+        }
+
+# =============================================================================
+# INTERFACE UTILISATEUR PROFESSIONNELLE
+# =============================================================================
+
+class ProUI:
+    """Interface utilisateur professionnelle"""
+    
+    @staticmethod
+    def setup_page():
+        """Configure la page Streamlit"""
+        st.set_page_config(
+            page_title="Tipser Pro | Pronostics Intelligents",
+            page_icon="⚽",
+            layout="wide",
+            initial_sidebar_state="expanded",
+            menu_items={
+                'Get Help': 'https://tipser-pro.com/support',
+                'Report a bug': 'https://tipser-pro.com/bug',
+                'About': "Tipser Pro v2.0 - Système IA de pronostics football"
             }
-        ]
+        )
         
-        return demo_matches
+        # CSS personnalisé professionnel
+        ProUI._inject_css()
+        
+        # Initialisation session state
+        ProUI._init_session_state()
+    
+    @staticmethod
+    def _inject_css():
+        """Injecte le CSS professionnel"""
+        st.markdown("""
+        <style>
+        /* Thème principal */
+        .stApp {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .main-container {
+            background: white;
+            border-radius: 20px;
+            padding: 20px;
+            margin: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        /* En-tête */
+        .pro-header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        /* Cartes */
+        .pro-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin: 10px 0;
+            border-left: 5px solid #4CAF50;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .pro-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 15px rgba(0,0,0,0.2);
+        }
+        
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            margin: 2px;
+        }
+        
+        .badge-success { background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%); color: white; }
+        .badge-warning { background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%); color: white; }
+        .badge-danger { background: linear-gradient(135deg, #F44336 0%, #D32F2F 100%); color: white; }
+        .badge-info { background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); color: white; }
+        .badge-premium { background: linear-gradient(135deg, #FFD700 0%, #FFC107 100%); color: #333; }
+        
+        /* Métriques */
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        /* Boutons */
+        .stButton button {
+            border-radius: 10px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        
+        .stButton button:hover {
+            transform: scale(1.05);
+        }
+        
+        /* Onglets */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 2px;
+        }
+        
+        .stTabs [data-baseweb="tab"] {
+            background-color: #f0f2f6;
+            border-radius: 10px 10px 0 0;
+            padding: 10px 20px;
+            font-weight: bold;
+        }
+        
+        </style>
+        """, unsafe_allow_html=True)
+    
+    @staticmethod
+    def _init_session_state():
+        """Initialise le session state"""
+        defaults = {
+            'api_client': ProFootballClient(),
+            'ai_predictor': AIPredictor(),
+            'value_detector': ValueBetDetector(),
+            'selected_match': None,
+            'view_mode': 'dashboard',
+            'analysis_depth': 'advanced',
+            'bankroll': 1000,
+            'risk_profile': 'medium',
+            'subscription_level': 'pro'
+        }
+        
+        for key, value in defaults.items():
+            if key not in st.session_state:
+                st.session_state[key] = value
+    
+    @staticmethod
+    def render_header():
+        """Affiche l'en-tête professionnel"""
+        col1, col2, col3 = st.columns([1, 2, 1])
+        
+        with col1:
+            st.image("https://img.icons8.com/color/96/000000/football.png", width=80)
+        
+        with col2:
+            st.markdown("""
+            <div class="pro-header">
+                <h1>⚽ TIPSER PRO</h1>
+                <h3>Système Intelligent de Pronostics Football</h3>
+                <p>Powered by AI • Data Analytics • Value Bet Detection</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            st.metric("Version", "2.0 PRO")
+            st.caption(f"Bankroll: €{st.session_state.bankroll}")
 
 # =============================================================================
 # APPLICATION PRINCIPALE
 # =============================================================================
 
 def main():
-    """Application principale Streamlit"""
+    """Application principale Tipser Pro"""
     
-    # Configuration de la page
-    st.set_page_config(
-        page_title="Pronostics Football",
-        page_icon="⚽",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
+    # Configuration de l'interface
+    ProUI.setup_page()
+    ProUI.render_header()
     
-    # CSS personnalisé
-    st.markdown("""
-    <style>
-    .main-header {
-        font-size: 2.8rem;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-align: center;
-        margin-bottom: 1rem;
-        padding: 1rem;
-    }
-    .match-card {
-        border-radius: 10px;
-        padding: 15px;
-        margin: 15px 0;
-        background: white;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        border-left: 5px solid #4CAF50;
-    }
-    .live-badge {
-        background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
-        color: white;
-        padding: 4px 12px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: bold;
-    }
-    .upcoming-badge {
-        background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%);
-        color: white;
-        padding: 4px 12px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: bold;
-    }
-    .league-badge {
-        background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
-        color: white;
-        padding: 4px 12px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: bold;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Initialisation de l'état
-    if 'football_api' not in st.session_state:
-        st.session_state.football_api = FootballAPIClient()
-    
-    if 'selected_match' not in st.session_state:
-        st.session_state.selected_match = None
-    
-    if 'view_mode' not in st.session_state:
-        st.session_state.view_mode = "selection"
-    
-    # En-tête
-    st.markdown('<h1 class="main-header">⚽ Pronostics Football</h1>', 
-                unsafe_allow_html=True)
-    
-    # Vérification de l'API
+    # Sidebar professionnel
     with st.sidebar:
-        st.title("⚙️ Configuration")
-        
-        status, message = st.session_state.football_api.test_api_key()
-        if status:
-            st.success(f"{message}")
-        else:
-            st.error(f"{message}")
-            st.info("Mode démo activé")
-        
-        st.divider()
-        
-        # Bouton pour retourner à la sélection
-        if st.session_state.view_mode == "analysis":
-            if st.button("🔙 Retour à la sélection", use_container_width=True):
-                st.session_state.view_mode = "selection"
-                st.session_state.selected_match = None
-                st.rerun()
+        render_pro_sidebar()
     
     # Contenu principal
-    if st.session_state.view_mode == "selection":
-        display_match_selection()
-    else:
-        display_match_analysis()
+    if st.session_state.view_mode == 'dashboard':
+        render_dashboard()
+    elif st.session_state.view_mode == 'match_selection':
+        render_match_selection()
+    elif st.session_state.view_mode == 'match_analysis':
+        render_match_analysis()
+    elif st.session_state.view_mode == 'portfolio':
+        render_portfolio()
+    elif st.session_state.view_mode == 'settings':
+        render_settings()
 
-def display_match_selection():
-    """Affiche la sélection des matchs"""
+def render_pro_sidebar():
+    """Affiche la sidebar professionnelle"""
+    st.sidebar.title("🎯 Navigation")
     
-    st.header("📋 Sélectionnez un match à analyser")
+    # Menu de navigation
+    menu_options = {
+        '📊 Dashboard': 'dashboard',
+        '🔍 Sélection Matchs': 'match_selection',
+        '📈 Analyse Match': 'match_analysis',
+        '💰 Mon Portfolio': 'portfolio',
+        '⚙️ Paramètres': 'settings'
+    }
     
-    # Options de filtrage dans le sidebar
-    with st.sidebar:
-        st.subheader("Filtres")
-        
-        # Filtre par période
-        time_filter = st.selectbox(
-            "Période",
-            ["Aujourd'hui", "7 prochains jours"],
-            key="time_filter"
-        )
-        
-        # Liste des ligues (version simplifiée)
-        leagues = [
-            {"id": 61, "name": "Ligue 1", "country": "France", "logo": "🇫🇷"},
-            {"id": 39, "name": "Premier League", "country": "England", "logo": "🏴"},
-            {"id": 140, "name": "La Liga", "country": "Spain", "logo": "🇪🇸"},
-            {"id": 78, "name": "Bundesliga", "country": "Germany", "logo": "🇩🇪"},
-            {"id": 135, "name": "Serie A", "country": "Italy", "logo": "🇮🇹"}
-        ]
-        
-        league_options = ["Toutes les ligues"] + [f"{l['logo']} {l['name']}" for l in leagues]
-        selected_league = st.selectbox("Ligue", league_options, key="league_filter")
-        
-        # Option pour les matchs à venir seulement
-        show_only_upcoming = st.checkbox("Matchs à venir seulement", value=True, key="upcoming_only")
-        
-        # Bouton de recherche
-        if st.button("🔍 Rechercher", type="primary", use_container_width=True):
-            st.rerun()
+    selected = st.sidebar.selectbox(
+        "Menu",
+        list(menu_options.keys()),
+        key="nav_menu"
+    )
     
-    # Récupération des matchs
-    with st.spinner("Recherche des matchs..."):
-        if time_filter == "Aujourd'hui":
-            matches = st.session_state.football_api.get_todays_matches()
-        else:
-            matches = st.session_state.football_api.get_upcoming_matches(days=7)
+    st.session_state.view_mode = menu_options[selected]
     
-    # Filtrer par statut si demandé
-    if show_only_upcoming and matches:
-        matches = [m for m in matches if m.get('status') == 'NS']
+    st.sidebar.divider()
     
-    # Affichage des résultats
-    if not matches:
-        st.warning("Aucun match trouvé.")
-        st.info("Affichage des matchs de démonstration...")
-        matches = st.session_state.football_api._get_fallback_matches()
+    # Filtres rapides
+    st.sidebar.subheader("🔎 Filtres Rapides")
     
-    # Statistiques
-    col1, col2, col3 = st.columns(3)
+    st.sidebar.multiselect(
+        "Ligues préférées",
+        ["Ligue 1", "Premier League", "La Liga", "Bundesliga", "Serie A"],
+        default=["Ligue 1", "Premier League"],
+        key="fav_leagues"
+    )
+    
+    st.sidebar.select_slider(
+        "Confiance minimum",
+        options=["Faible", "Moyenne", "Élevée"],
+        value="Moyenne",
+        key="min_confidence"
+    )
+    
+    # Statistiques sidebar
+    st.sidebar.divider()
+    st.sidebar.subheader("📈 Stats Rapides")
+    
+    col1, col2 = st.sidebar.columns(2)
     with col1:
-        st.metric("Matchs trouvés", len(matches))
+        st.metric("Tips", "24")
+        st.metric("Hit Rate", "68%")
     with col2:
-        upcoming = len([m for m in matches if m.get('status') == 'NS'])
-        st.metric("À venir", upcoming)
+        st.metric("ROI", "+14.5%")
+        st.metric("Valeur", "€145")
+    
+    # Bouton mise à jour
+    if st.sidebar.button("🔄 Actualiser données", type="primary", use_container_width=True):
+        st.rerun()
+
+def render_dashboard():
+    """Affiche le dashboard principal"""
+    st.title("📊 Dashboard Tipser Pro")
+    
+    # KPI en haut
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown('<div class="metric-card"><h3>🎯 Tips Actifs</h3><h2>5</h2></div>', 
+                   unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown('<div class="metric-card"><h3>📈 ROI 30j</h3><h2>+12.4%</h2></div>', 
+                   unsafe_allow_html=True)
+    
     with col3:
-        st.metric("Ligues", len(set(m['league'] for m in matches)))
+        st.markdown('<div class="metric-card"><h3>✅ Hit Rate</h3><h2>67.8%</h2></div>', 
+                   unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown('<div class="metric-card"><h3>💰 Bankroll</h3><h2>€1,145</h2></div>', 
+                   unsafe_allow_html=True)
     
     st.divider()
     
-    # Affichage des matchs
-    st.subheader(f"📅 Matchs disponibles ({len(matches)})")
+    # Graphiques
+    col1, col2 = st.columns(2)
     
-    # Afficher chaque match
-    for idx, match in enumerate(matches):
-        display_match_card(match, idx)
-    
-    # Message si aucun match
-    if len(matches) == 0:
-        st.info("""
-        ℹ️ **Conseil :**
-        - Essayez de changer les filtres de recherche
-        - Vérifiez votre connexion internet
-        - Les matchs de démonstration sont affichés
-        """)
-
-def display_match_card(match, idx):
-    """Affiche une carte pour un match"""
-    
-    # Formater la date
-    date_str = match['date'].strftime("%d/%m/%Y")
-    time_str = match['date'].strftime("%H:%M")
-    
-    # Déterminer le badge
-    if match.get('status') == 'LIVE':
-        badge_class = "live-badge"
-        badge_text = "🔴 EN DIRECT"
-    else:
-        badge_class = "upcoming-badge"
-        badge_text = "⏰ À VENIR"
-    
-    # Carte HTML
-    st.markdown(f"""
-    <div class="match-card">
-        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
-            <div class="{badge_class}">
-                {badge_text}
-            </div>
-            <div style="text-align: right;">
-                <div style="font-size: 14px; font-weight: bold; color: #333;">{date_str}</div>
-                <div style="font-size: 12px; color: #666;">{time_str}</div>
-            </div>
-        </div>
+    with col1:
+        st.subheader("📈 Performance Mensuelle")
+        # Graphique simulé
+        months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun']
+        roi = [2.1, 5.3, 8.7, 10.2, 12.4, 14.5]
         
-        <div style="margin-bottom: 10px;">
-            <div class="league-badge" style="display: inline-block;">
-                {match['league']}
-            </div>
-            <div style="font-size: 12px; color: #666; margin-top: 5px;">
-                {match['country']} • {match['venue']}
-            </div>
-        </div>
+        fig = go.Figure(data=[
+            go.Scatter(
+                x=months,
+                y=roi,
+                mode='lines+markers',
+                line=dict(color='#4CAF50', width=3),
+                marker=dict(size=8)
+            )
+        ])
         
-        <div style="display: flex; justify-content: space-between; align-items: center; margin: 20px 0;">
-            <div style="flex: 1; text-align: center;">
-                <div style="font-size: 18px; font-weight: bold; margin-bottom: 5px;">{match['home_team']}</div>
-                <div style="font-size: 12px; color: #666;">Domicile</div>
-            </div>
-            
-            <div style="margin: 0 15px;">
-                <div style="font-size: 28px; font-weight: bold; color: #333;">VS</div>
-            </div>
-            
-            <div style="flex: 1; text-align: center;">
-                <div style="font-size: 18px; font-weight: bold; margin-bottom: 5px;">{match['away_team']}</div>
-                <div style="font-size: 12px; color: #666;">Extérieur</div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        fig.update_layout(
+            template='plotly_white',
+            height=300,
+            margin=dict(l=20, r=20, t=30, b=20),
+            yaxis_title="ROI (%)"
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
     
-    # Bouton pour analyser le match
-    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        button_key = f"analyze_{match['id']}_{idx}"
-        if st.button(f"🔍 Analyser ce match", 
-                    key=button_key, 
-                    use_container_width=True,
-                    type="primary"):
-            st.session_state.selected_match = match
-            st.session_state.view_mode = "analysis"
-            st.rerun()
+        st.subheader("🎯 Distribution des Paris")
+        
+        # Données simulées
+        labels = ['1N2', 'Over/Under', 'BTTS', 'Handicap', 'Autres']
+        values = [45, 25, 15, 10, 5]
+        
+        fig = go.Figure(data=[go.Pie(
+            labels=labels,
+            values=values,
+            hole=.3,
+            marker=dict(colors=['#667eea', '#764ba2', '#4CAF50', '#FF9800', '#F44336'])
+        )])
+        
+        fig.update_layout(
+            template='plotly_white',
+            height=300,
+            margin=dict(l=20, r=20, t=30, b=20),
+            showlegend=True
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
     
-    st.markdown("<br>", unsafe_allow_html=True)
+    # Derniers tips
+    st.divider()
+    st.subheader("🎯 Derniers Tips Recommandés")
+    
+    tips = [
+        {"match": "PSG vs Marseille", "tip": "Over 2.5", "odds": 1.85, "stake": "3%", "status": "✅ Gagné"},
+        {"match": "Real Madrid vs Barca", "tip": "1", "odds": 2.10, "stake": "2%", "status": "✅ Gagné"},
+        {"match": "Liverpool vs City", "tip": "BTTS Yes", "odds": 1.65, "stake": "4%", "status": "⚪ En cours"},
+        {"match": "Bayern vs Dortmund", "tip": "1 & Over 2.5", "odds": 2.40, "stake": "2%", "status": "❌ Perdu"},
+        {"match": "Milan vs Inter", "tip": "Under 2.5", "odds": 1.95, "stake": "3%", "status": "✅ Gagné"}
+    ]
+    
+    for tip in tips:
+        with st.container():
+            col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 2])
+            
+            with col1:
+                st.write(f"**{tip['match']}**")
+            
+            with col2:
+                st.code(tip['tip'])
+            
+            with col3:
+                st.metric("Cote", tip['odds'])
+            
+            with col4:
+                st.write(tip['stake'])
+            
+            with col5:
+                if tip['status'] == '✅ Gagné':
+                    st.success(tip['status'])
+                elif tip['status'] == '❌ Perdu':
+                    st.error(tip['status'])
+                else:
+                    st.info(tip['status'])
+            
+            st.divider()
 
-def display_match_analysis():
-    """Affiche l'analyse d'un match sélectionné"""
+def render_match_selection():
+    """Affiche la sélection des matchs"""
+    st.title("🔍 Sélection des Matchs")
     
-    if not st.session_state.selected_match:
-        st.error("Aucun match sélectionné.")
-        st.session_state.view_mode = "selection"
+    # Filtres avancés
+    with st.expander("🎯 Filtres Avancés", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            date_range = st.selectbox(
+                "Période",
+                ["Aujourd'hui", "Demain", "Week-end", "7 jours", "Personnalisé"],
+                key="date_range"
+            )
+        
+        with col2:
+            leagues = st.multiselect(
+                "Ligues",
+                ["Ligue 1", "Premier League", "La Liga", "Bundesliga", "Serie A", 
+                 "Ligue des Champions", "Europa League", "Ligue 2"],
+                default=["Ligue 1", "Premier League"],
+                key="selected_leagues"
+            )
+        
+        with col3:
+            min_odds = st.slider("Cote minimum", 1.2, 5.0, 1.5, 0.1)
+            max_odds = st.slider("Cote maximum", 1.5, 10.0, 3.0, 0.1)
+    
+    # Recherche
+    if st.button("🔍 Rechercher Matchs", type="primary", icon="🔍"):
+        with st.spinner("Analyse des matchs en cours..."):
+            time.sleep(2)  # Simulation
+            display_match_results()
+
+def display_match_results():
+    """Affiche les résultats de recherche"""
+    # Simuler des matchs
+    matches = [
+        {
+            'id': 1,
+            'home': 'Paris SG',
+            'away': 'Marseille',
+            'league': 'Ligue 1',
+            'time': '20:00',
+            'date': '15/03/2024',
+            'home_odds': 1.65,
+            'draw_odds': 3.80,
+            'away_odds': 4.50,
+            'prediction': '1',
+            'confidence': 72,
+            'value': 8.2
+        },
+        {
+            'id': 2,
+            'home': 'Lyon',
+            'away': 'Monaco',
+            'league': 'Ligue 1',
+            'time': '18:00',
+            'date': '16/03/2024',
+            'home_odds': 2.10,
+            'draw_odds': 3.40,
+            'away_odds': 3.20,
+            'prediction': '1X',
+            'confidence': 65,
+            'value': 5.8
+        },
+        {
+            'id': 3,
+            'home': 'Real Madrid',
+            'away': 'Barcelona',
+            'league': 'La Liga',
+            'time': '21:00',
+            'date': '17/03/2024',
+            'home_odds': 2.30,
+            'draw_odds': 3.50,
+            'away_odds': 2.90,
+            'prediction': 'Over 2.5',
+            'confidence': 68,
+            'value': 7.1
+        }
+    ]
+    
+    for match in matches:
+        with st.container():
+            st.markdown(f"""
+            <div class="pro-card">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h4>{match['home']} vs {match['away']}</h4>
+                        <p>🏆 {match['league']} | 📅 {match['date']} | ⏰ {match['time']}</p>
+                    </div>
+                    <div>
+                        <span class="badge badge-success">Confiance: {match['confidence']}%</span>
+                        <span class="badge badge-premium">Valeur: +{match['value']}%</span>
+                    </div>
+                </div>
+                
+                <div style="display: flex; justify-content: space-around; margin: 20px 0;">
+                    <div style="text-align: center;">
+                        <h5>1</h5>
+                        <h3>{match['home_odds']}</h3>
+                    </div>
+                    <div style="text-align: center;">
+                        <h5>N</h5>
+                        <h3>{match['draw_odds']}</h3>
+                    </div>
+                    <div style="text-align: center;">
+                        <h5>2</h5>
+                        <h3>{match['away_odds']}</h3>
+                    </div>
+                </div>
+                
+                <div style="text-align: center; margin-top: 20px;">
+                    <h4>🎯 Prédiction: {match['prediction']}</h4>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button(f"📊 Analyser en détail", key=f"analyze_{match['id']}"):
+                    st.session_state.selected_match = match
+                    st.session_state.view_mode = 'match_analysis'
+                    st.rerun()
+            
+            with col2:
+                if st.button(f"💰 Ajouter au portfolio", key=f"add_{match['id']}"):
+                    st.success(f"Match {match['home']} vs {match['away']} ajouté au portfolio!")
+
+def render_match_analysis():
+    """Affiche l'analyse détaillée d'un match"""
+    if not st.session_state.get('selected_match'):
+        st.warning("Aucun match sélectionné")
+        st.session_state.view_mode = 'match_selection'
         st.rerun()
         return
     
     match = st.session_state.selected_match
     
-    # Bouton de retour
-    if st.button("← Retour à la sélection"):
-        st.session_state.view_mode = "selection"
-        st.session_state.selected_match = None
-        st.rerun()
-    
-    # En-tête
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown(f"""
-        <div style="text-align: center;">
-            <h2>🔍 Analyse du match</h2>
-            <h3>{match['home_team']} vs {match['away_team']}</h3>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Informations du match
-    st.markdown("---")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("🏆 Ligue", match['league'])
-        st.metric("📍 Stade", match['venue'][:15] + "..." if len(match['venue']) > 15 else match['venue'])
-    
-    with col2:
-        st.metric("📅 Date", match['date'].strftime("%d/%m/%Y"))
-        st.metric("⏰ Heure", match['date'].strftime("%H:%M"))
-    
-    with col3:
-        status_text = "🔴 EN DIRECT" if match.get('status') == 'LIVE' else "⏰ À VENIR"
-        st.metric("📊 Statut", status_text)
-        st.metric("🌍 Pays", match['country'])
-    
-    with col4:
-        st.metric("🏠 Domicile", match['home_team'])
-        st.metric("✈️ Extérieur", match['away_team'])
-    
-    st.markdown("---")
+    st.title(f"📈 Analyse: {match['home']} vs {match['away']}")
     
     # Onglets d'analyse
-    tab1, tab2, tab3 = st.tabs(["📈 Statistiques", "🎯 Prédictions", "💰 Paris"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📊 Vue d'ensemble",
+        "🎯 Prédictions IA",
+        "💰 Opportunités",
+        "📈 Statistiques",
+        "📋 Comparaison"
+    ])
     
     with tab1:
-        display_statistics(match)
+        render_match_overview(match)
     
     with tab2:
-        display_predictions(match)
+        render_ai_predictions(match)
     
     with tab3:
-        display_betting(match)
+        render_value_opportunities(match)
+    
+    with tab4:
+        render_statistics(match)
+    
+    with tab5:
+        render_comparison(match)
 
-def display_statistics(match):
-    """Affiche les statistiques"""
-    
-    st.subheader("📊 Comparaison des équipes")
-    
-    # Générer des statistiques simulées
-    home_stats = generate_team_stats(match['home_team'], is_home=True)
-    away_stats = generate_team_stats(match['away_team'], is_home=False)
-    
-    # Tableau de comparaison
-    comparison_data = {
-        'Statistique': [
-            'Forme récente',
-            'Victoires domicile/extérieur',
-            'Buts marqués (moyenne)',
-            'Buts encaissés (moyenne)',
-            'Possession moyenne',
-            'Tirs par match'
-        ],
-        match['home_team']: [
-            home_stats['recent_form'],
-            f"{home_stats['home_wins']}/{home_stats['home_matches']}",
-            f"{home_stats['avg_goals_for']:.1f}",
-            f"{home_stats['avg_goals_against']:.1f}",
-            f"{home_stats['possession']}%",
-            f"{home_stats['shots_per_game']:.1f}"
-        ],
-        match['away_team']: [
-            away_stats['recent_form'],
-            f"{away_stats['away_wins']}/{away_stats['away_matches']}",
-            f"{away_stats['avg_goals_for']:.1f}",
-            f"{away_stats['avg_goals_against']:.1f}",
-            f"{away_stats['possession']}%",
-            f"{away_stats['shots_per_game']:.1f}"
-        ]
-    }
-    
-    df_comparison = pd.DataFrame(comparison_data)
-    st.dataframe(df_comparison.set_index('Statistique'), use_container_width=True)
-
-def generate_team_stats(team_name, is_home=True):
-    """Génère des statistiques simulées"""
-    
-    # Forme récente
-    recent_form = ''.join(random.choices(['W', 'D', 'L'], weights=[45, 25, 30], k=5))
-    
-    # Statistiques de base
-    if is_home:
-        home_wins = random.randint(5, 10)
-        home_matches = random.randint(12, 18)
-        avg_goals_for = random.uniform(1.5, 2.5)
-    else:
-        away_wins = random.randint(3, 8)
-        away_matches = random.randint(12, 18)
-        avg_goals_for = random.uniform(1.0, 2.0)
-    
-    return {
-        'team': team_name,
-        'recent_form': recent_form,
-        'home_wins': home_wins if is_home else random.randint(3, 8),
-        'home_matches': home_matches if is_home else random.randint(12, 18),
-        'away_wins': random.randint(2, 7) if is_home else away_wins,
-        'away_matches': random.randint(12, 18) if is_home else away_matches,
-        'avg_goals_for': round(avg_goals_for, 1),
-        'avg_goals_against': round(random.uniform(0.8, 1.8), 1),
-        'possession': random.randint(48, 65),
-        'shots_per_game': round(random.uniform(10, 18), 1)
-    }
-
-def display_predictions(match):
-    """Affiche les prédictions"""
-    
-    st.subheader("🎯 Prédictions")
-    
-    # Calculer les probabilités
-    home_prob = random.randint(40, 65)
-    draw_prob = random.randint(20, 35)
-    away_prob = 100 - home_prob - draw_prob
-    
+def render_match_overview(match):
+    """Affiche la vue d'ensemble du match"""
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### Probabilités")
+        st.subheader("🏟️ Informations Match")
         
-        # Victoire domicile
-        st.markdown(f"**✅ {match['home_team']} gagne**")
-        st.progress(home_prob/100)
-        st.caption(f"{home_prob}%")
-        
-        # Match nul
-        st.markdown("**⚪ Match nul**")
-        st.progress(draw_prob/100)
-        st.caption(f"{draw_prob}%")
-        
-        # Victoire extérieur
-        st.markdown(f"**✅ {match['away_team']} gagne**")
-        st.progress(away_prob/100)
-        st.caption(f"{away_prob}%")
-    
-    with col2:
-        st.markdown("### Score prédit")
-        
-        # Générer un score
-        home_goals = random.randint(0, 3)
-        away_goals = random.randint(0, 2)
-        
-        st.markdown(f"<h1 style='text-align: center; font-size: 3rem;'>{home_goals}-{away_goals}</h1>", 
-                   unsafe_allow_html=True)
-        
-        st.metric("Total buts", home_goals + away_goals)
-        
-        if home_goals > 0 and away_goals > 0:
-            st.success("✅ Les deux équipes devraient marquer")
-        else:
-            st.info("⚪ Une équipe pourrait rester à 0")
-
-def display_betting(match):
-    """Affiche l'analyse des paris"""
-    
-    st.subheader("💰 Opportunités de pari")
-    
-    # Générer des cotes
-    bookmaker_odds = {
-        'Bet365': {
-            '1': round(random.uniform(1.6, 2.8), 2),
-            'N': round(random.uniform(3.2, 3.8), 2),
-            '2': round(random.uniform(2.5, 4.5), 2),
-            'Over 2.5': round(random.uniform(1.7, 2.2), 2),
-            'Under 2.5': round(random.uniform(1.6, 2.1), 2)
-        },
-        'Unibet': {
-            '1': round(random.uniform(1.65, 2.85), 2),
-            'N': round(random.uniform(3.25, 3.85), 2),
-            '2': round(random.uniform(2.55, 4.55), 2),
-            'Over 2.5': round(random.uniform(1.72, 2.22), 2),
-            'Under 2.5': round(random.uniform(1.62, 2.12), 2)
+        info_data = {
+            "Ligue": match['league'],
+            "Date": match['date'],
+            "Heure": match['time'],
+            "Stade": "Stade du match",
+            "Arbitre": "Arbitre principal",
+            "Météo": "☀️ 18°C, Pas de pluie"
         }
-    }
+        
+        for key, value in info_data.items():
+            st.metric(key, value)
     
-    # Afficher les cotes
-    st.markdown("### 📊 Cotes disponibles")
+    with col2:
+        st.subheader("📊 Cotes Marché")
+        
+        odds_data = {
+            "Victoire domicile": match['home_odds'],
+            "Match nul": match['draw_odds'],
+            "Victoire extérieur": match['away_odds'],
+            "Over 2.5 goals": 1.85,
+            "BTTS Oui": 1.65,
+            "1X Double Chance": 1.35
+        }
+        
+        df_odds = pd.DataFrame(list(odds_data.items()), columns=['Marché', 'Cote'])
+        st.dataframe(df_odds, use_container_width=True, hide_index=True)
     
-    odds_list = []
-    for bookmaker, markets in bookmaker_odds.items():
-        for market, odd in markets.items():
-            odds_list.append({
-                'Bookmaker': bookmaker,
-                'Marché': market,
-                'Cote': odd
-            })
+    st.divider()
     
-    df_odds = pd.DataFrame(odds_list)
-    pivot_df = df_odds.pivot(index='Marché', columns='Bookmaker', values='Cote')
-    st.dataframe(pivot_df, use_container_width=True)
-    
-    # Recommandations
-    st.markdown("### 🎯 Recommandations")
+    # Forme des équipes
+    st.subheader("📈 Forme Récente")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.metric("Niveau de risque", "Moyen")
-        st.caption("Basé sur l'analyse")
+        st.write(f"**{match['home']}**")
+        recent_form = "W W D L W"
+        st.write(f"Derniers 5 matchs: {recent_form}")
+        
+        # Graphique de forme
+        form_scores = [1, 1, 0.5, 0, 1]  # W=1, D=0.5, L=0
+        fig = go.Figure(data=[
+            go.Scatter(
+                y=form_scores,
+                mode='lines+markers',
+                line=dict(color='#4CAF50', width=3),
+                marker=dict(size=10)
+            )
+        ])
+        fig.update_layout(height=200, margin=dict(l=20, r=20, t=20, b=20))
+        st.plotly_chart(fig, use_container_width=True)
     
     with col2:
-        st.metric("Mise suggérée", "2-3%")
-        st.caption("Pour bankroll 1000€")
+        st.write(f"**{match['away']}**")
+        recent_form = "D W W D L"
+        st.write(f"Derniers 5 matchs: {recent_form}")
+        
+        # Graphique de forme
+        form_scores = [0.5, 1, 1, 0.5, 0]
+        fig = go.Figure(data=[
+            go.Scatter(
+                y=form_scores,
+                mode='lines+markers',
+                line=dict(color='#F44336', width=3),
+                marker=dict(size=10)
+            )
+        ])
+        fig.update_layout(height=200, margin=dict(l=20, r=20, t=20, b=20))
+        st.plotly_chart(fig, use_container_width=True)
 
-if __name__ == "__main__":
-    main()
+def render_ai_predictions(match):
+    """Affiche les prédictions IA"""
+    st.subheader("🤖 Prédictions par Intelligence Artificielle")
+    
+    # Simulation des prédictions IA
+    predictions = st.session_state.ai_predictor.predict_match(
+        home_stats={'recent_form': 'WWDWL', 'avg_goals_for': 2.1, 'avg_goals_against': 0.8},
+        away_stats={'recent_form': 'DWWDL', 'avg_goals_for': 1.6, 'avg_goals_against': 1.2},
+        h2h_data=[]
+    )
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Probabilités
+        st.markdown("### 📊 Probabilités")
+        
+        probs = {
+            f"✅ {match['home']} gagne": predictions['home_win_probability'],
+            f"⚪ Match nul": predictions['draw_probability'],
+            f"✅ {match['away']} gagne": predictions['away_win_probability']
+        }
+        
+        for label, prob in probs.items():
+            st.write(f"**{label}**")
+            st.progress(prob/100)
+            st.caption(f"{prob}%")
+    
+    with col2:
+        # Score attendu
+        st.markdown("### ⚽ Score Attend
