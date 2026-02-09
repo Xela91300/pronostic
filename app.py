@@ -1,5 +1,5 @@
 # app.py - Système de Pronostics Multi-Sports avec Données en Temps Réél
-# Version améliorée avec toutes les fonctionnalités
+# Version améliorée sans dépendance Plotly
 
 import streamlit as st
 import pandas as pd
@@ -15,9 +15,7 @@ import re
 import math
 from dataclasses import dataclass
 from enum import Enum
-import plotly.graph_objects as go
-import plotly.express as px
-from scipy import stats
+# Suppression de l'import Plotly pour éviter l'erreur
 
 warnings.filterwarnings('ignore')
 
@@ -222,6 +220,14 @@ class AdvancedDataCollector:
                         'stadium': 'Spotify Camp Nou',
                         'city': 'Barcelona'
                     },
+                    'Manchester City': {
+                        'attack': 98, 'defense': 91, 'midfield': 96,
+                        'form': 'WWWWW', 'goals_avg': 2.8,
+                        'home_strength': 97, 'away_strength': 94,
+                        'coach': 'Pep Guardiola',
+                        'stadium': 'Etihad Stadium',
+                        'city': 'Manchester'
+                    },
                 },
                 'scheduled_matches': [
                     {
@@ -250,6 +256,14 @@ class AdvancedDataCollector:
                         'coach': 'Darvin Ham',
                         'arena': 'Crypto.com Arena',
                         'city': 'Los Angeles'
+                    },
+                    'Golden State Warriors': {
+                        'offense': 117, 'defense': 115, 'pace': 105,
+                        'form': 'LWWDL', 'points_avg': 117.3,
+                        'home_strength': 94, 'away_strength': 90,
+                        'coach': 'Steve Kerr',
+                        'arena': 'Chase Center',
+                        'city': 'San Francisco'
                     },
                 },
                 'scheduled_matches': [
@@ -634,11 +648,11 @@ class AdvancedDataCollector:
         return bookmakers
 
 # =============================================================================
-# ANALYSE STATISTIQUE AVANCÉE
+# ANALYSE STATISTIQUE AVANCÉE (SANS SCIPY)
 # =============================================================================
 
 class AdvancedStatisticalAnalysis:
-    """Analyses statistiques avancées"""
+    """Analyses statistiques avancées sans dépendances externes"""
     
     @staticmethod
     def calculate_poisson_probabilities(home_lambda: float, away_lambda: float, 
@@ -649,8 +663,10 @@ class AdvancedStatisticalAnalysis:
         
         for i in range(max_goals + 1):
             for j in range(max_goals + 1):
-                prob = (stats.poisson.pmf(i, home_lambda) * 
-                       stats.poisson.pmf(j, away_lambda))
+                # Calcul Poisson manuel
+                prob_home = AdvancedStatisticalAnalysis._poisson_pmf(i, home_lambda)
+                prob_away = AdvancedStatisticalAnalysis._poisson_pmf(j, away_lambda)
+                prob = prob_home * prob_away
                 scores.append(f"{i}-{j}")
                 probabilities.append(prob)
         
@@ -658,6 +674,36 @@ class AdvancedStatisticalAnalysis:
         df['Probabilité %'] = df['Probabilité'] * 100
         
         return df.sort_values('Probabilité', ascending=False)
+    
+    @staticmethod
+    def _poisson_pmf(k: int, lam: float) -> float:
+        """Calcule la fonction de masse de probabilité de Poisson"""
+        if lam == 0:
+            return 1.0 if k == 0 else 0.0
+        
+        try:
+            # Approximation pour éviter overflow
+            if lam > 50:
+                # Approximation normale pour grands lambda
+                return AdvancedStatisticalAnalysis._normal_approximation(k, lam)
+            
+            result = math.exp(-lam) * (lam ** k) / math.factorial(k)
+            return result
+        except:
+            return 0.0
+    
+    @staticmethod
+    def _normal_approximation(k: int, lam: float) -> float:
+        """Approximation normale pour Poisson avec grand lambda"""
+        mean = lam
+        std = math.sqrt(lam)
+        
+        if std == 0:
+            return 0.0
+        
+        # Densité normale
+        z = (k - mean) / std
+        return (1 / (std * math.sqrt(2 * math.pi))) * math.exp(-0.5 * z * z)
     
     @staticmethod
     def calculate_expected_goals(home_data: Dict, away_data: Dict, 
@@ -706,7 +752,11 @@ class AdvancedStatisticalAnalysis:
             trend = 'stable'
         
         # Calcul de la consistance
-        consistency = 1 - np.std(results) if len(results) > 1 else 0
+        if len(results) > 1:
+            variance = np.var(results)
+            consistency = 1 - math.sqrt(variance)
+        else:
+            consistency = 0
         
         return {
             'trend': trend,
@@ -1012,7 +1062,7 @@ class AdvancedPredictionEngine:
                                      away_data: Dict, league_data: Dict, 
                                      h2h_data: Dict) -> Dict[str, float]:
         """Calcule les probabilités de base"""
-        # Méthode simplifiée - à améliorer
+        # Méthode simplifiée
         if sport == 'football':
             home_strength = home_data.get('attack', 75) * 0.4 + home_data.get('defense', 75) * 0.3 + home_data.get('midfield', 75) * 0.3
             away_strength = away_data.get('attack', 70) * 0.4 + away_data.get('defense', 70) * 0.3 + away_data.get('midfield', 70) * 0.3
@@ -1168,7 +1218,7 @@ class AdvancedPredictionEngine:
                 if is_value:
                     value_bets.append({
                         'bookmaker': bookmaker,
-                        'bet': f"Victoire {sport.capitalize()}",
+                        'bet': f"Victoire domicile",
                         'odd': odds['home'],
                         'value': round((1/odds['home'] - probabilities['home_win']/100) * 100, 1),
                         'expected_value': ev
@@ -1238,11 +1288,12 @@ class AdvancedPredictionEngine:
                 })
             
             # Both teams to score
-            if probabilities.get('both_teams_score_prob', 0) > 65:
+            btts_prob = min(75, max(40, (probabilities['home_win'] + probabilities['away_win']) / 2))
+            if btts_prob > 65:
                 safe_bets.append({
                     'type': 'both_teams_score',
-                    'probability': probabilities.get('both_teams_score_prob', 0),
-                    'best_odd': 1.8,  # Exemple
+                    'probability': btts_prob,
+                    'best_odd': 1.8,
                     'safety_level': 'medium'
                 })
         else:
@@ -1485,7 +1536,7 @@ class AdvancedPredictionEngine:
                 'home_team': home_team,
                 'away_team': away_team,
                 'league': league,
-                'date': date.today().strftime('%Y-%m-d')
+                'date': date.today().strftime('%Y-%m-%d')
             },
             'probabilities': {'home_win': 33.3, 'draw': 33.3, 'away_win': 33.3} if sport == 'football' else {'home_win': 50.0, 'away_win': 50.0},
             'recommendations': {
@@ -1499,11 +1550,11 @@ class AdvancedPredictionEngine:
         }
 
 # =============================================================================
-# INTERFACE STREAMLIT AMÉLIORÉE
+# INTERFACE STREAMLIT AMÉLIORÉE (SANS PLOTLY)
 # =============================================================================
 
 def main():
-    """Interface principale améliorée"""
+    """Interface principale améliorée sans Plotly"""
     
     st.set_page_config(
         page_title="Pronostics Sports Premium",
@@ -1556,6 +1607,21 @@ def main():
     .risk-high { color: #F44336; font-weight: bold; }
     .risk-medium { color: #FF9800; font-weight: bold; }
     .risk-low { color: #4CAF50; font-weight: bold; }
+    .progress-bar {
+        height: 20px;
+        background: #e0e0e0;
+        border-radius: 10px;
+        margin: 5px 0;
+        overflow: hidden;
+    }
+    .progress-fill {
+        height: 100%;
+        border-radius: 10px;
+        text-align: center;
+        color: white;
+        font-weight: bold;
+        line-height: 20px;
+    }
     </style>
     """, unsafe_allow_html=True)
     
@@ -1726,23 +1792,21 @@ def main():
                 probs = analysis['probabilities']
                 
                 if analysis['match_info']['sport'] == 'football':
-                    fig = go.Figure(data=[
-                        go.Bar(
-                            x=list(probs.keys()),
-                            y=list(probs.values()),
-                            text=[f"{v}%" for v in probs.values()],
-                            textposition='auto',
-                            marker_color=['#4CAF50', '#FF9800', '#F44336']
-                        )
-                    ])
+                    # Barres de progression au lieu de graphique Plotly
+                    st.markdown("### Probabilités de résultat")
                     
-                    fig.update_layout(
-                        title="Probabilités de résultat",
-                        yaxis_title="Probabilité (%)",
-                        height=300
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
+                    for bet_type, prob in probs.items():
+                        label = "Domicile" if bet_type == 'home_win' else "Nul" if bet_type == 'draw' else "Extérieur"
+                        color = "#4CAF50" if bet_type == 'home_win' else "#FF9800" if bet_type == 'draw' else "#F44336"
+                        
+                        st.markdown(f"**{label}**: {prob}%")
+                        st.markdown(f"""
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: {prob}%; background: {color};">
+                                {prob}%
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
                     
                     col_a, col_b, col_c = st.columns(3)
                     with col_a:
@@ -1752,16 +1816,21 @@ def main():
                     with col_c:
                         st.metric("Extérieur", f"{probs['away_win']}%")
                 else:
-                    fig = go.Figure(data=[
-                        go.Pie(
-                            labels=list(probs.keys()),
-                            values=list(probs.values()),
-                            marker_colors=['#4CAF50', '#F44336']
-                        )
-                    ])
+                    # Basketball
+                    st.markdown("### Probabilités de victoire")
                     
-                    fig.update_layout(title="Probabilités de victoire", height=300)
-                    st.plotly_chart(fig, use_container_width=True)
+                    for bet_type, prob in probs.items():
+                        label = "Domicile" if bet_type == 'home_win' else "Extérieur"
+                        color = "#4CAF50" if bet_type == 'home_win' else "#F44336"
+                        
+                        st.markdown(f"**{label}**: {prob}%")
+                        st.markdown(f"""
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: {prob}%; background: {color};">
+                                {prob}%
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
                 
                 st.markdown('</div>', unsafe_allow_html=True)
         
@@ -1782,14 +1851,10 @@ def main():
                             st.markdown(f"**{score['Score']}**: {score['Probabilité %']:.1f}%")
                     
                     with col2:
-                        # Distribution des scores
-                        fig = px.bar(
-                            df_scores.head(10),
-                            x='Score',
-                            y='Probabilité %',
-                            title="Distribution des scores"
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
+                        # Tableau au lieu de graphique
+                        st.markdown("**Distribution des scores:**")
+                        st.dataframe(df_scores.head(10)[['Score', 'Probabilité %']].round(1), 
+                                    use_container_width=True)
                 
                 # Expected Goals
                 xg = analysis['statistical_analysis']['expected_goals']
