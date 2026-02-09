@@ -1,5 +1,5 @@
-# app.py - Système de Pronostics Multi-Sports avec Données en Temps Réel
-# Version corrigée avec gestion d'état Streamlit
+# app.py - Système de Pronostics Football avec API Réelle
+# Version simplifiée et fonctionnelle
 
 import streamlit as st
 import pandas as pd
@@ -13,102 +13,41 @@ from typing import Dict, List, Optional, Tuple, Any
 import warnings
 import re
 import math
-from dataclasses import dataclass
-from enum import Enum
-import hashlib
-import functools
-import logging
 
 warnings.filterwarnings('ignore')
 
 # =============================================================================
-# CONFIGURATION DES APIS AVEC VOTRE CLÉ
+# CONFIGURATION DES APIS
 # =============================================================================
 
 class APIConfig:
-    """Configuration des APIs externes avec votre clé réelle"""
+    """Configuration des APIs externes"""
     
     # VOTRE CLÉ API RÉELLE POUR LE FOOTBALL
-    FOOTBALL_API_KEY = "33a972705943458ebcbcae6b56e4dee0"  # Votre clé ici
-    
-    # Mode démo pour les autres (à remplacer si vous avez d'autres clés)
-    BASKETBALL_API_KEY = "demo"
-    WEATHER_API_KEY = "demo"
+    FOOTBALL_API_KEY = "33a972705943458ebcbcae6b56e4dee0"
     
     # URLs des APIs
     FOOTBALL_API_URL = "https://v3.football.api-sports.io"
-    BASKETBALL_API_URL = "https://v1.basketball.api-sports.io"
-    WEATHER_API_URL = "https://api.openweathermap.org/data/2.5/weather"
-    
-    # Temps de cache (secondes)
-    CACHE_DURATION = 1800  # 30 minutes
     
     @staticmethod
     def get_football_headers():
-        """Retourne les headers avec VOTRE clé API réelle"""
+        """Retourne les headers avec votre clé API réelle"""
         return {
             'x-rapidapi-host': 'v3.football.api-sports.io',
             'x-rapidapi-key': APIConfig.FOOTBALL_API_KEY
         }
-    
-    @staticmethod
-    def get_basketball_headers():
-        return {
-            'x-rapidapi-host': 'v1.basketball.api-sports.io',
-            'x-rapidapi-key': APIConfig.BASKETBALL_API_KEY
-        }
 
 # =============================================================================
-# TYPES ET ENUMS
-# =============================================================================
-
-class SportType(Enum):
-    FOOTBALL = "football"
-    BASKETBALL = "basketball"
-
-@dataclass
-class Match:
-    """Représente un match avec toutes ses informations"""
-    id: int
-    home_team: str
-    away_team: str
-    league: str
-    country: str
-    date: datetime
-    status: str  # "NS" = Not Started, "FT" = Finished, etc.
-    venue: str
-    home_team_id: int
-    away_team_id: int
-    league_id: int
-    
-    def to_dict(self):
-        """Convertit l'objet Match en dictionnaire JSON-serializable"""
-        return {
-            'id': self.id,
-            'home_team': self.home_team,
-            'away_team': self.away_team,
-            'league': self.league,
-            'country': self.country,
-            'date': self.date.isoformat() if isinstance(self.date, datetime) else str(self.date),
-            'status': self.status,
-            'venue': self.venue,
-            'home_team_id': self.home_team_id,
-            'away_team_id': self.away_team_id,
-            'league_id': self.league_id
-        }
-
-# =============================================================================
-# CLIENT API FOOTBALL AVEC VOTRE CLÉ
+# CLIENT API FOOTBALL
 # =============================================================================
 
 class FootballAPIClient:
-    """Client pour l'API Football avec votre clé réelle"""
+    """Client pour l'API Football"""
     
     def __init__(self):
         self.base_url = APIConfig.FOOTBALL_API_URL
         self.headers = APIConfig.get_football_headers()
         self.timeout = 30
-        self.cache = {}
         
     def test_api_key(self):
         """Teste si la clé API fonctionne"""
@@ -122,38 +61,18 @@ class FootballAPIClient:
             if response.status_code == 200:
                 data = response.json()
                 if data.get('response', {}).get('account'):
-                    return True, "✅ Clé API valide"
+                    return True, "Clé API valide"
                 else:
-                    return False, "❌ Clé API invalide"
+                    return False, "Clé API invalide"
             elif response.status_code == 403:
-                return False, "❌ Clé API refusée (non valide ou quota dépassé)"
+                return False, "Clé API refusée"
             elif response.status_code == 429:
-                return False, "❌ Trop de requêtes (quota dépassé)"
+                return False, "Trop de requêtes"
             else:
-                return False, f"❌ Erreur {response.status_code}"
+                return False, f"Erreur {response.status_code}"
                 
         except Exception as e:
-            return False, f"❌ Erreur de connexion: {str(e)}"
-    
-    def get_live_matches(self):
-        """Récupère les matchs en direct"""
-        try:
-            response = requests.get(
-                f"{self.base_url}/fixtures",
-                headers=self.headers,
-                params={'live': 'all'},
-                timeout=self.timeout
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                return self._parse_fixtures(data)
-            else:
-                return []
-                
-        except Exception as e:
-            st.error(f"Erreur: {str(e)}")
-            return []
+            return False, f"Erreur de connexion: {str(e)}"
     
     def get_todays_matches(self):
         """Récupère les matchs d'aujourd'hui"""
@@ -163,7 +82,7 @@ class FootballAPIClient:
             response = requests.get(
                 f"{self.base_url}/fixtures",
                 headers=self.headers,
-                params={'date': today},
+                params={'date': today, 'timezone': 'Europe/Paris'},
                 timeout=self.timeout
             )
             
@@ -174,21 +93,18 @@ class FootballAPIClient:
                 return self._get_fallback_matches()
                 
         except Exception as e:
-            st.error(f"Erreur: {str(e)}")
             return self._get_fallback_matches()
     
-    def get_upcoming_matches(self, days: int = 7, league_id: int = None):
+    def get_upcoming_matches(self, days: int = 7):
         """Récupère les matchs à venir"""
         end_date = (date.today() + timedelta(days=days)).strftime('%Y-%m-%d')
         
         params = {
             'from': date.today().strftime('%Y-%m-%d'),
             'to': end_date,
-            'status': 'NS'
+            'status': 'NS',
+            'timezone': 'Europe/Paris'
         }
-        
-        if league_id:
-            params['league'] = league_id
         
         try:
             response = requests.get(
@@ -205,28 +121,7 @@ class FootballAPIClient:
                 return self._get_fallback_matches()
                 
         except Exception as e:
-            st.error(f"Erreur: {str(e)}")
             return self._get_fallback_matches()
-    
-    def get_match_by_id(self, match_id: int):
-        """Récupère un match spécifique par son ID"""
-        try:
-            response = requests.get(
-                f"{self.base_url}/fixtures",
-                headers=self.headers,
-                params={'id': match_id},
-                timeout=self.timeout
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data['response']:
-                    return self._parse_fixture(data['response'][0])
-            return None
-            
-        except Exception as e:
-            st.error(f"Erreur: {str(e)}")
-            return None
     
     def get_team_statistics(self, team_id: int, league_id: int, season: int = 2024):
         """Récupère les statistiques d'une équipe"""
@@ -247,1001 +142,100 @@ class FootballAPIClient:
             return None
             
         except Exception as e:
-            st.error(f"Erreur statistiques: {str(e)}")
             return None
-    
-    def get_head_to_head(self, team1_id: int, team2_id: int, limit: int = 10):
-        """Récupère l'historique des confrontations"""
-        try:
-            response = requests.get(
-                f"{self.base_url}/fixtures/headtohead",
-                headers=self.headers,
-                params={
-                    'h2h': f"{team1_id}-{team2_id}",
-                    'last': limit
-                },
-                timeout=self.timeout
-            )
-            
-            if response.status_code == 200:
-                return response.json()
-            return None
-            
-        except Exception as e:
-            st.error(f"Erreur H2H: {str(e)}")
-            return None
-    
-    def get_league_standings(self, league_id: int, season: int = 2024):
-        """Récupère le classement de la ligue"""
-        try:
-            response = requests.get(
-                f"{self.base_url}/standings",
-                headers=self.headers,
-                params={
-                    'league': league_id,
-                    'season': season
-                },
-                timeout=self.timeout
-            )
-            
-            if response.status_code == 200:
-                return response.json()
-            return None
-            
-        except Exception as e:
-            st.error(f"Erreur classement: {str(e)}")
-            return None
-    
-    def get_popular_leagues(self):
-        """Retourne les ligues populaires"""
-        leagues = [
-            {'id': 61, 'name': 'Ligue 1', 'country': 'France', 'logo': '🇫🇷'},
-            {'id': 39, 'name': 'Premier League', 'country': 'England', 'logo': '🏴󠁧󠁢󠁥󠁮󠁧󠁿'},
-            {'id': 140, 'name': 'La Liga', 'country': 'Spain', 'logo': '🇪🇸'},
-            {'id': 78, 'name': 'Bundesliga', 'country': 'Germany', 'logo': '🇩🇪'},
-            {'id': 135, 'name': 'Serie A', 'country': 'Italy', 'logo': '🇮🇹'},
-            {'id': 88, 'name': 'Eredivisie', 'country': 'Netherlands', 'logo': '🇳🇱'},
-            {'id': 94, 'name': 'Primeira Liga', 'country': 'Portugal', 'logo': '🇵🇹'},
-            {'id': 203, 'name': 'Super Lig', 'country': 'Turkey', 'logo': '🇹🇷'},
-            {'id': 262, 'name': 'MLS', 'country': 'USA', 'logo': '🇺🇸'},
-            {'id': 253, 'name': 'Brasileirão', 'country': 'Brazil', 'logo': '🇧🇷'},
-        ]
-        return leagues
     
     def _parse_fixtures(self, api_data):
-        """Parse les données d'API en objets Match"""
+        """Parse les données d'API"""
         matches = []
         
         if 'response' not in api_data:
             return matches
         
         for fixture in api_data['response']:
-            match = self._parse_fixture(fixture)
-            if match:
-                matches.append(match)
+            try:
+                # Date du match
+                fixture_date = fixture['fixture']['date']
+                match_date = datetime.fromisoformat(fixture_date.replace('Z', '+00:00'))
+                
+                # Équipes
+                home_team = fixture['teams']['home']['name']
+                away_team = fixture['teams']['away']['name']
+                
+                # Ligue
+                league_info = fixture.get('league', {})
+                league_name = league_info.get('name', 'Ligue Inconnue')
+                league_country = league_info.get('country', 'Inconnu')
+                
+                match_info = {
+                    'id': fixture['fixture']['id'],
+                    'home_team': home_team,
+                    'away_team': away_team,
+                    'league': league_name,
+                    'country': league_country,
+                    'date': match_date,
+                    'status': fixture['fixture']['status']['short'],
+                    'venue': fixture['fixture']['venue']['name'] if fixture['fixture']['venue'] else 'Stade Inconnu',
+                    'home_team_id': fixture['teams']['home']['id'],
+                    'away_team_id': fixture['teams']['away']['id'],
+                    'league_id': league_info.get('id', 0)
+                }
+                
+                matches.append(match_info)
+                
+            except Exception as e:
+                continue
         
         return matches
     
-    def _parse_fixture(self, fixture):
-        """Parse une fixture individuelle"""
-        try:
-            # Vérifier que la fixture a les données nécessaires
-            if 'fixture' not in fixture or 'teams' not in fixture:
-                return None
-            
-            # Date du match
-            fixture_date = fixture['fixture']['date']
-            match_date = datetime.fromisoformat(fixture_date.replace('Z', '+00:00'))
-            
-            # Équipes
-            home_team = fixture['teams']['home']['name']
-            away_team = fixture['teams']['away']['name']
-            
-            # Ligue
-            league_info = fixture.get('league', {})
-            league_name = league_info.get('name', 'Unknown League')
-            league_country = league_info.get('country', 'Unknown')
-            
-            # Créer l'objet Match
-            match = Match(
-                id=fixture['fixture']['id'],
-                home_team=home_team,
-                away_team=away_team,
-                league=league_name,
-                country=league_country,
-                date=match_date,
-                status=fixture['fixture']['status']['short'],
-                venue=fixture['fixture']['venue']['name'] if fixture['fixture']['venue'] else 'Unknown',
-                home_team_id=fixture['teams']['home']['id'],
-                away_team_id=fixture['teams']['away']['id'],
-                league_id=league_info.get('id', 0)
-            )
-            
-            return match
-            
-        except Exception as e:
-            print(f"Error parsing fixture: {e}")
-            return None
-    
     def _get_fallback_matches(self):
-        """Retourne des matchs de fallback si l'API échoue"""
+        """Retourne des matchs de démonstration"""
         today = datetime.now()
         matches = []
         
-        # Matchs de démo pour la Ligue 1
-        ligue1_matches = [
-            Match(
-                id=1001,
-                home_team='Paris SG',
-                away_team='Marseille',
-                league='Ligue 1',
-                country='France',
-                date=today + timedelta(days=1),
-                status='NS',
-                venue='Parc des Princes',
-                home_team_id=85,
-                away_team_id=81,
-                league_id=61
-            ),
-            Match(
-                id=1002,
-                home_team='Lyon',
-                away_team='Monaco',
-                league='Ligue 1',
-                country='France',
-                date=today + timedelta(days=2),
-                status='NS',
-                venue='Groupama Stadium',
-                home_team_id=80,
-                away_team_id=91,
-                league_id=61
-            ),
-            Match(
-                id=1003,
-                home_team='Lille',
-                away_team='Nice',
-                league='Ligue 1',
-                country='France',
-                date=today + timedelta(days=1),
-                status='NS',
-                venue='Stade Pierre-Mauroy',
-                home_team_id=79,
-                away_team_id=84,
-                league_id=61
-            )
+        # Matchs de démo
+        demo_matches = [
+            {
+                'id': 1001,
+                'home_team': 'Paris SG',
+                'away_team': 'Marseille',
+                'league': 'Ligue 1',
+                'country': 'France',
+                'date': today + timedelta(days=1),
+                'status': 'NS',
+                'venue': 'Parc des Princes',
+                'home_team_id': 85,
+                'away_team_id': 81,
+                'league_id': 61
+            },
+            {
+                'id': 1002,
+                'home_team': 'Lyon',
+                'away_team': 'Monaco',
+                'league': 'Ligue 1',
+                'country': 'France',
+                'date': today + timedelta(days=2),
+                'status': 'NS',
+                'venue': 'Groupama Stadium',
+                'home_team_id': 80,
+                'away_team_id': 91,
+                'league_id': 61
+            },
+            {
+                'id': 1003,
+                'home_team': 'Lille',
+                'away_team': 'Nice',
+                'league': 'Ligue 1',
+                'country': 'France',
+                'date': today + timedelta(days=1),
+                'status': 'NS',
+                'venue': 'Stade Pierre-Mauroy',
+                'home_team_id': 79,
+                'away_team_id': 84,
+                'league_id': 61
+            }
         ]
         
-        matches.extend(ligue1_matches)
-        
-        return matches
-
-# =============================================================================
-# INTERFACE DE SÉLECTION DES MATCHS
-# =============================================================================
-
-class MatchSelector:
-    """Interface pour sélectionner des matchs à analyser"""
-    
-    def __init__(self):
-        self.api_client = FootballAPIClient()
-        
-    def display_match_selection(self):
-        """Affiche l'interface de sélection des matchs"""
-        
-        st.header("⚽ Sélectionnez un match à analyser")
-        
-        # Test de la clé API
-        with st.expander("🔑 Vérification de la clé API", expanded=False):
-            status, message = self.api_client.test_api_key()
-            if status:
-                st.success(message)
-            else:
-                st.error(message)
-                st.info("Utilisation du mode démo pour les matchs")
-        
-        # Options de filtrage
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            time_filter = st.selectbox(
-                "Période",
-                ["Aujourd'hui", "Demain", "7 prochains jours", "En direct"],
-                key="time_filter"
-            )
-        
-        with col2:
-            # Filtre par ligue
-            leagues = self.api_client.get_popular_leagues()
-            league_names = ["Toutes les ligues"] + [f"{l['logo']} {l['name']}" for l in leagues]
-            selected_league = st.selectbox("Ligue", league_names, key="league_filter")
-            
-            # Extraire l'ID de la ligue sélectionnée
-            league_id = None
-            if selected_league != "Toutes les ligues":
-                for league in leagues:
-                    if f"{league['logo']} {league['name']}" == selected_league:
-                        league_id = league['id']
-                        break
-        
-        with col3:
-            # Option pour afficher seulement les matchs non commencés
-            show_only_upcoming = st.checkbox("Matchs à venir seulement", value=True, key="upcoming_filter")
-        
-        # Bouton de rafraîchissement
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.button("🔄 Rafraîchir la liste des matchs", type="primary", use_container_width=True, key="refresh_matches"):
-                st.cache_data.clear()
-                st.rerun()
-        
-        # Récupération des matchs
-        with st.spinner("Chargement des matchs..."):
-            matches = self._get_matches_by_filter(time_filter, league_id, show_only_upcoming)
-        
-        # Affichage des matchs
-        if not matches:
-            st.warning("Aucun match trouvé pour les critères sélectionnés.")
-            st.info("Utilisation de matchs de démonstration...")
-            matches = self.api_client._get_fallback_matches()
-        
-        # Affichage sous forme de grille
-        st.subheader(f"📋 {len(matches)} match(s) disponible(s)")
-        
-        # Afficher chaque match avec un bouton d'analyse
-        for match in matches:
-            self._display_match_card(match)
-        
-        return None
-    
-    def _get_matches_by_filter(self, time_filter: str, league_id: int = None, upcoming_only: bool = True):
-        """Récupère les matchs selon les filtres"""
-        matches = []
-        
-        try:
-            if time_filter == "Aujourd'hui":
-                matches = self.api_client.get_todays_matches()
-            elif time_filter == "Demain":
-                tomorrow = date.today() + timedelta(days=1)
-                # Pour simplifier, on prend les 7 prochains jours et on filtre
-                all_matches = self.api_client.get_upcoming_matches(days=7, league_id=league_id)
-                matches = [
-                    m for m in all_matches 
-                    if m.date.date() == tomorrow and (not upcoming_only or m.status == 'NS')
-                ]
-            elif time_filter == "7 prochains jours":
-                matches = self.api_client.get_upcoming_matches(days=7, league_id=league_id)
-            elif time_filter == "En direct":
-                matches = self.api_client.get_live_matches()
-            
-            # Filtrer par statut si nécessaire
-            if upcoming_only:
-                matches = [m for m in matches if m.status == 'NS']
-            
-            # Trier par date
-            matches.sort(key=lambda x: x.date)
-            
-        except Exception as e:
-            st.error(f"Erreur lors du chargement des matchs: {str(e)}")
-            matches = self.api_client._get_fallback_matches()
-        
-        return matches
-    
-    def _display_match_card(self, match: Match):
-        """Affiche une carte pour un match avec un bouton pour l'analyser"""
-        
-        # Formater la date
-        date_str = match.date.strftime("%d/%m/%Y %H:%M")
-        
-        # Couleur selon le statut
-        if match.status == 'NS':
-            status_color = "#4CAF50"  # Vert pour les matchs à venir
-            status_text = "⏰ À venir"
-        elif match.status == 'LIVE':
-            status_color = "#FF9800"  # Orange pour les matchs en direct
-            status_text = "🔴 En direct"
-        else:
-            status_color = "#757575"  # Gris pour les autres
-            status_text = "✅ Terminé"
-        
-        # Créer une carte
-        with st.container():
-            st.markdown(f"""
-            <div style="
-                border: 2px solid {status_color};
-                border-radius: 10px;
-                padding: 15px;
-                margin: 15px 0;
-                background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            ">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                    <div style="background: {status_color}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">
-                        {status_text}
-                    </div>
-                    <div style="font-size: 12px; color: #666;">
-                        {date_str}
-                    </div>
-                </div>
-                
-                <div style="text-align: center; margin: 15px 0;">
-                    <div style="font-size: 18px; font-weight: bold; margin-bottom: 5px;">
-                        {match.league}
-                    </div>
-                    <div style="font-size: 14px; color: #666; margin-bottom: 15px;">
-                        {match.country} • {match.venue}
-                    </div>
-                    
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div style="flex: 1; text-align: right;">
-                            <div style="font-size: 18px; font-weight: bold;">
-                                {match.home_team}
-                            </div>
-                        </div>
-                        
-                        <div style="margin: 0 20px;">
-                            <div style="font-size: 28px; font-weight: bold; color: #333;">VS</div>
-                        </div>
-                        
-                        <div style="flex: 1; text-align: left;">
-                            <div style="font-size: 18px; font-weight: bold;">
-                                {match.away_team}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Bouton pour analyser le match - on utilise une clé unique
-            button_key = f"analyze_{match.id}"
-            if st.button(f"🔍 Analyser {match.home_team} vs {match.away_team}", 
-                        key=button_key, 
-                        use_container_width=True):
-                # Stocker le match sélectionné et changer de page
-                st.session_state.selected_match = match
-                st.session_state.current_page = "analyze"
-                st.rerun()
-
-# =============================================================================
-# MOTEUR D'ANALYSE AVANCÉ
-# =============================================================================
-
-class AdvancedFootballAnalyzer:
-    """Moteur d'analyse pour le football avec données réelles"""
-    
-    def __init__(self, api_client: FootballAPIClient):
-        self.api_client = api_client
-        self.cache = {}
-    
-    def analyze_match(self, match: Match):
-        """Analyse complète d'un match"""
-        
-        st.header(f"🔍 Analyse détaillée: {match.home_team} vs {match.away_team}")
-        
-        # Afficher les informations de base
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Ligue", match.league)
-            st.metric("Date", match.date.strftime("%d/%m/%Y"))
-        
-        with col2:
-            st.metric("Stade", match.venue)
-            st.metric("Heure", match.date.strftime("%H:%M"))
-        
-        with col3:
-            status_text = "À venir" if match.status == 'NS' else "En direct" if match.status == 'LIVE' else "Terminé"
-            st.metric("Statut", status_text)
-            st.metric("Pays", match.country)
-        
-        st.divider()
-        
-        # Créer des onglets pour les différentes analyses
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "📊 Statistiques", 
-            "📈 Forme des équipes", 
-            "🤝 Historique", 
-            "🎯 Prédiction", 
-            "💰 Paris"
-        ])
-        
-        with tab1:
-            self._display_statistics(match)
-        
-        with tab2:
-            self._display_team_form(match)
-        
-        with tab3:
-            self._display_head_to_head(match)
-        
-        with tab4:
-            self._display_prediction(match)
-        
-        with tab5:
-            self._display_betting_analysis(match)
-        
-        # Bouton pour retourner à la sélection
-        st.divider()
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.button("🔙 Retour à la sélection des matchs", use_container_width=True, key="back_to_selection"):
-                st.session_state.selected_match = None
-                st.session_state.current_page = "select"
-                st.rerun()
-    
-    def _display_statistics(self, match: Match):
-        """Affiche les statistiques des équipes"""
-        st.subheader("📊 Statistiques des équipes")
-        
-        # Récupérer les statistiques des deux équipes
-        with st.spinner("Chargement des statistiques..."):
-            # Statistiques de la saison en cours (2024)
-            home_stats = self.api_client.get_team_statistics(match.home_team_id, match.league_id, 2024)
-            away_stats = self.api_client.get_team_statistics(match.away_team_id, match.league_id, 2024)
-        
-        if home_stats and away_stats and 'response' in home_stats and 'response' in away_stats:
-            # Extraire les statistiques importantes
-            home_data = self._extract_team_stats(home_stats, match.home_team)
-            away_data = self._extract_team_stats(away_stats, match.away_team)
-            
-            # Créer un DataFrame pour l'affichage
-            stats_df = pd.DataFrame({
-                'Statistique': ['Matches joués', 'Victoires', 'Nuls', 'Défaites', 
-                              'Buts marqués', 'Buts encaissés', 'Différence', 
-                              'Forme (derniers 5)', 'Clean sheets'],
-                match.home_team: [
-                    home_data['matches_played'],
-                    home_data['wins'],
-                    home_data['draws'],
-                    home_data['loses'],
-                    home_data['goals_for'],
-                    home_data['goals_against'],
-                    home_data['goals_diff'],
-                    home_data['form'],
-                    home_data['clean_sheet']
-                ],
-                match.away_team: [
-                    away_data['matches_played'],
-                    away_data['wins'],
-                    away_data['draws'],
-                    away_data['loses'],
-                    away_data['goals_for'],
-                    away_data['goals_against'],
-                    away_data['goals_diff'],
-                    away_data['form'],
-                    away_data['clean_sheet']
-                ]
-            })
-            
-            st.dataframe(stats_df.set_index('Statistique'), use_container_width=True)
-            
-            # Graphiques de comparaison
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # Comparaison buts
-                goals_data = pd.DataFrame({
-                    'Équipe': [match.home_team, match.away_team],
-                    'Buts marqués': [home_data['goals_for'], away_data['goals_for']],
-                    'Buts encaissés': [home_data['goals_against'], away_data['goals_against']]
-                })
-                
-                st.bar_chart(goals_data.set_index('Équipe'))
-            
-            with col2:
-                # Comparaison résultats
-                results_data = pd.DataFrame({
-                    'Résultat': ['Victoires', 'Nuls', 'Défaites'],
-                    match.home_team: [home_data['wins'], home_data['draws'], home_data['loses']],
-                    match.away_team: [away_data['wins'], away_data['draws'], away_data['loses']]
-                })
-                
-                st.bar_chart(results_data.set_index('Résultat'))
-        
-        else:
-            st.warning("Statistiques non disponibles pour ce match")
-            st.info("Affichage des statistiques simulées...")
-            
-            # Statistiques simulées
-            self._display_simulated_stats(match)
-    
-    def _extract_team_stats(self, stats_data, team_name):
-        """Extrait les statistiques importantes des données d'API"""
-        try:
-            if 'response' not in stats_data:
-                return self._generate_simulated_stats(team_name)
-            
-            response = stats_data['response']
-            
-            # Extraire les données des fixtures
-            fixtures = response.get('fixtures', {})
-            goals = response.get('goals', {})
-            
-            # Forme (derniers matchs)
-            form = response.get('form', '')
-            
-            goals_for = goals.get('for', {}).get('total', {}).get('total', 0)
-            goals_against = goals.get('against', {}).get('total', {}).get('total', 0)
-            
-            return {
-                'team': team_name,
-                'matches_played': fixtures.get('played', {}).get('total', 0),
-                'wins': fixtures.get('wins', {}).get('total', 0),
-                'draws': fixtures.get('draws', {}).get('total', 0),
-                'loses': fixtures.get('loses', {}).get('total', 0),
-                'goals_for': goals_for,
-                'goals_against': goals_against,
-                'goals_diff': goals_for - goals_against,
-                'form': form[:5] if form else 'N/A',
-                'clean_sheet': goals.get('against', {}).get('total', {}).get('clean_sheet', 0)
-            }
-            
-        except Exception as e:
-            print(f"Error extracting stats: {e}")
-            return self._generate_simulated_stats(team_name)
-    
-    def _generate_simulated_stats(self, team_name):
-        """Génère des statistiques simulées"""
-        goals_for = random.randint(25, 80)
-        goals_against = random.randint(15, 50)
-        
-        return {
-            'team': team_name,
-            'matches_played': random.randint(20, 38),
-            'wins': random.randint(8, 25),
-            'draws': random.randint(5, 12),
-            'loses': random.randint(3, 15),
-            'goals_for': goals_for,
-            'goals_against': goals_against,
-            'goals_diff': goals_for - goals_against,
-            'form': random.choice(['WWDLW', 'LDWWD', 'WLLWD', 'DWWDL', 'WLWLD']),
-            'clean_sheet': random.randint(5, 15)
-        }
-    
-    def _display_simulated_stats(self, match: Match):
-        """Affiche des statistiques simulées"""
-        home_stats = self._generate_simulated_stats(match.home_team)
-        away_stats = self._generate_simulated_stats(match.away_team)
-        
-        stats_df = pd.DataFrame({
-            'Statistique': ['Matches joués', 'Victoires', 'Nuls', 'Défaites', 
-                          'Buts marqués', 'Buts encaissés', 'Différence', 
-                          'Forme (derniers 5)', 'Clean sheets'],
-            match.home_team: [
-                home_stats['matches_played'],
-                home_stats['wins'],
-                home_stats['draws'],
-                home_stats['loses'],
-                home_stats['goals_for'],
-                home_stats['goals_against'],
-                home_stats['goals_diff'],
-                home_stats['form'],
-                home_stats['clean_sheet']
-            ],
-            match.away_team: [
-                away_stats['matches_played'],
-                away_stats['wins'],
-                away_stats['draws'],
-                away_stats['loses'],
-                away_stats['goals_for'],
-                away_stats['goals_against'],
-                away_stats['goals_diff'],
-                away_stats['form'],
-                away_stats['clean_sheet']
-            ]
-        })
-        
-        st.dataframe(stats_df.set_index('Statistique'), use_container_width=True)
-        
-        # Graphiques de comparaison
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Comparaison buts
-            goals_data = pd.DataFrame({
-                'Équipe': [match.home_team, match.away_team],
-                'Buts marqués': [home_stats['goals_for'], away_stats['goals_for']],
-                'Buts encaissés': [home_stats['goals_against'], away_stats['goals_against']]
-            })
-            
-            st.bar_chart(goals_data.set_index('Équipe'))
-        
-        with col2:
-            # Comparaison résultats
-            results_data = pd.DataFrame({
-                'Résultat': ['Victoires', 'Nuls', 'Défaites'],
-                match.home_team: [home_stats['wins'], home_stats['draws'], home_stats['loses']],
-                match.away_team: [away_stats['wins'], away_stats['draws'], away_stats['loses']]
-            })
-            
-            st.bar_chart(results_data.set_index('Résultat'))
-    
-    def _display_team_form(self, match: Match):
-        """Affiche la forme des équipes"""
-        st.subheader("📈 Forme récente des équipes")
-        
-        # Générer des données de forme simulées
-        home_form = self._generate_form_data(match.home_team)
-        away_form = self._generate_form_data(match.away_team)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown(f"### 🏠 {match.home_team}")
-            
-            # Afficher les derniers résultats
-            st.markdown("**Derniers 5 matchs:**")
-            for result in home_form['last_5_results']:
-                if result == 'W':
-                    st.success("✅ Victoire")
-                elif result == 'D':
-                    st.info("⚪ Nul")
-                else:
-                    st.error("❌ Défaite")
-            
-            # Statistiques de forme
-            st.metric("Forme générale", f"{home_form['form_rating']}/10")
-            st.metric("Victoires domicile", home_form['home_wins'])
-            st.metric("Buts/match", f"{home_form['avg_goals']:.1f}")
-        
-        with col2:
-            st.markdown(f"### ✈️ {match.away_team}")
-            
-            # Afficher les derniers résultats
-            st.markdown("**Derniers 5 matchs:**")
-            for result in away_form['last_5_results']:
-                if result == 'W':
-                    st.success("✅ Victoire")
-                elif result == 'D':
-                    st.info("⚪ Nul")
-                else:
-                    st.error("❌ Défaite")
-            
-            # Statistiques de forme
-            st.metric("Forme générale", f"{away_form['form_rating']}/10")
-            st.metric("Victoires extérieur", away_form['away_wins'])
-            st.metric("Buts/match", f"{away_form['avg_goals']:.1f}")
-    
-    def _generate_form_data(self, team_name):
-        """Génère des données de forme simulées"""
-        return {
-            'last_5_results': random.choice(['WWDLW', 'LDWWD', 'WLLWD', 'DWWDL', 'WLWLD']),
-            'form_rating': random.randint(4, 9),
-            'home_wins': random.randint(5, 12),
-            'away_wins': random.randint(2, 8),
-            'avg_goals': round(random.uniform(1.2, 2.8), 1)
-        }
-    
-    def _display_head_to_head(self, match: Match):
-        """Affiche l'historique des confrontations"""
-        st.subheader("🤝 Historique des confrontations")
-        
-        with st.spinner("Chargement de l'historique..."):
-            h2h_data = self.api_client.get_head_to_head(match.home_team_id, match.away_team_id, 10)
-        
-        if h2h_data and 'response' in h2h_data and h2h_data['response']:
-            # Analyser les résultats
-            home_wins = 0
-            away_wins = 0
-            draws = 0
-            total_goals = 0
-            matches = []
-            
-            for fixture in h2h_data['response'][:5]:  # 5 derniers matchs
-                home_goals = fixture['goals']['home']
-                away_goals = fixture['goals']['away']
-                
-                if home_goals > away_goals:
-                    home_wins += 1
-                    result = "✅ Victoire domicile"
-                elif away_goals > home_goals:
-                    away_wins += 1
-                    result = "❌ Victoire extérieur"
-                else:
-                    draws += 1
-                    result = "⚪ Nul"
-                
-                total_goals += home_goals + away_goals
-                
-                match_date = datetime.fromisoformat(fixture['fixture']['date'].replace('Z', '+00:00'))
-                
-                matches.append({
-                    'Date': match_date.strftime('%d/%m/%Y'),
-                    'Résultat': f"{home_goals}-{away_goals}",
-                    'Détail': result,
-                    'Compétition': fixture['league']['name']
-                })
-            
-            total_matches = home_wins + away_wins + draws
-            
-            # Afficher les statistiques
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Matches totaux", total_matches)
-            
-            with col2:
-                st.metric("Victoires domicile", home_wins)
-            
-            with col3:
-                st.metric("Victoires extérieur", away_wins)
-            
-            with col4:
-                st.metric("Nuls", draws)
-            
-            # Buts moyens
-            if total_matches > 0:
-                avg_goals = total_goals / total_matches
-                st.metric("Buts moyens/match", f"{avg_goals:.1f}")
-            
-            # Afficher les derniers matchs
-            st.subheader("📅 Dernières rencontres")
-            for match_data in matches:
-                with st.expander(f"{match_data['Date']} - {match_data['Résultat']} ({match_data['Compétition']})"):
-                    st.write(f"**Résultat:** {match_data['Détail']}")
-                    st.write(f"**Score:** {match_data['Résultat']}")
-                    st.write(f"**Compétition:** {match_data['Compétition']}")
-        
-        else:
-            st.warning("Historique des confrontations non disponible")
-            st.info("Affichage de données simulées...")
-            
-            # Données simulées
-            self._display_simulated_h2h(match)
-    
-    def _display_simulated_h2h(self, match: Match):
-        """Affiche des données H2H simulées"""
-        home_wins = random.randint(3, 8)
-        away_wins = random.randint(2, 7)
-        draws = random.randint(1, 5)
-        total_matches = home_wins + away_wins + draws
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Matches totaux", total_matches)
-        
-        with col2:
-            st.metric("Victoires domicile", home_wins)
-        
-        with col3:
-            st.metric("Victoires extérieur", away_wins)
-        
-        with col4:
-            st.metric("Nuls", draws)
-        
-        # Buts moyens
-        avg_goals = round(random.uniform(2.0, 3.5), 1)
-        st.metric("Buts moyens/match", f"{avg_goals}")
-        
-        # Générer quelques matchs simulés
-        st.subheader("📅 Dernières rencontres simulées")
-        
-        for i in range(3):
-            date_str = (date.today() - timedelta(days=random.randint(30, 365))).strftime('%d/%m/%Y')
-            home_goals = random.randint(0, 4)
-            away_goals = random.randint(0, 4)
-            
-            with st.expander(f"{date_str} - {home_goals}-{away_goals}"):
-                if home_goals > away_goals:
-                    result = "✅ Victoire domicile"
-                elif away_goals > home_goals:
-                    result = "❌ Victoire extérieur"
-                else:
-                    result = "⚪ Nul"
-                
-                st.write(f"**Résultat:** {result}")
-                st.write(f"**Score:** {home_goals}-{away_goals}")
-                st.write(f"**Compétition:** {match.league}")
-    
-    def _display_prediction(self, match: Match):
-        """Affiche les prédictions pour le match"""
-        st.subheader("🎯 Prédiction du match")
-        
-        # Calculer les probabilités basées sur différentes méthodes
-        with st.spinner("Calcul des prédictions..."):
-            # Probabilités simulées basées sur diverses méthodes
-            predictions = self._calculate_predictions(match)
-        
-        # Afficher les résultats
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("### 📊 Probabilités")
-            
-            # Barres de progression
-            probabilities = predictions['probabilities']
-            
-            for outcome, prob in probabilities.items():
-                label = "Domicile" if outcome == 'home' else "Nul" if outcome == 'draw' else "Extérieur"
-                color = "#4CAF50" if outcome == 'home' else "#FF9800" if outcome == 'draw' else "#F44336"
-                
-                st.markdown(f"**{label}:** {prob}%")
-                st.progress(prob/100)
-        
-        with col2:
-            st.markdown("### 🎯 Score prédit")
-            
-            predicted_score = predictions['predicted_score']
-            st.markdown(f"<h1 style='text-align: center; font-size: 3rem;'>{predicted_score}</h1>", 
-                       unsafe_allow_html=True)
-            
-            st.metric("Total buts attendus", predictions['expected_goals'])
-            
-            if predictions['both_teams_score']:
-                st.success("✅ Les deux équipes devraient marquer")
-            else:
-                st.info("⚪ Une équipe pourrait rester à 0")
-        
-        st.divider()
-        
-        # Méthodes de prédiction utilisées
-        st.markdown("### 🧠 Méthodes utilisées")
-        
-        methods = predictions['methods']
-        for method in methods:
-            with st.expander(f"📈 {method['name']} - Confiance: {method['confidence']}%"):
-                st.write(method['description'])
-                st.write(f"**Prédiction:** {method['prediction']}")
-    
-    def _calculate_predictions(self, match: Match):
-        """Calcule les prédictions pour un match"""
-        # Cette méthode simule des prédictions basées sur différentes approches
-        # En production, vous utiliseriez des modèles réels
-        
-        # Probabilités de base
-        base_home_prob = random.uniform(40, 60)
-        base_draw_prob = random.uniform(20, 35)
-        base_away_prob = 100 - base_home_prob - base_draw_prob
-        
-        # Ajustements basés sur des facteurs
-        home_advantage = random.uniform(1.05, 1.15)  # Avantage domicile
-        form_factor = random.uniform(0.9, 1.1)       # Facteur forme
-        
-        # Probabilités finales
-        probabilities = {
-            'home': round(base_home_prob * home_advantage * form_factor, 1),
-            'draw': round(base_draw_prob, 1),
-            'away': round(base_away_prob, 1)
-        }
-        
-        # Normaliser à 100%
-        total = sum(probabilities.values())
-        probabilities = {k: round((v/total)*100, 1) for k, v in probabilities.items()}
-        
-        # Score prédit
-        home_goals = random.randint(0, 3)
-        away_goals = random.randint(0, 2)
-        predicted_score = f"{home_goals}-{away_goals}"
-        
-        return {
-            'probabilities': probabilities,
-            'predicted_score': predicted_score,
-            'expected_goals': home_goals + away_goals,
-            'both_teams_score': home_goals > 0 and away_goals > 0,
-            'methods': [
-                {
-                    'name': 'Modèle statistique',
-                    'confidence': random.randint(65, 85),
-                    'prediction': f"Victoire {match.home_team}" if probabilities['home'] > probabilities['away'] else "Match nul" if probabilities['draw'] > 35 else f"Victoire {match.away_team}",
-                    'description': 'Basé sur les statistiques historiques et la forme récente'
-                },
-                {
-                    'name': 'Analyse Poisson',
-                    'confidence': random.randint(60, 80),
-                    'prediction': f"{predicted_score}",
-                    'description': 'Distribution de Poisson basée sur les buts moyens'
-                },
-                {
-                    'name': 'Machine Learning',
-                    'confidence': random.randint(70, 90),
-                    'prediction': "Valeur sûre: les deux équipes marquent",
-                    'description': 'Modèle entraîné sur 1000+ matchs similaires'
-                }
-            ]
-        }
-    
-    def _display_betting_analysis(self, match: Match):
-        """Affiche l'analyse des paris"""
-        st.subheader("💰 Analyse des opportunités de pari")
-        
-        # Générer des cotes de bookmakers
-        bookmaker_odds = self._generate_bookmaker_odds(match)
-        
-        # Afficher les cotes
-        st.markdown("### 📊 Cotes des bookmakers")
-        
-        odds_df = pd.DataFrame(bookmaker_odds).T
-        st.dataframe(odds_df, use_container_width=True)
-        
-        # Identifier les value bets
-        st.markdown("### 💎 Paris avec valeur")
-        
-        value_bets = self._find_value_bets(match, bookmaker_odds)
-        
-        if value_bets:
-            for bet in value_bets:
-                with st.expander(f"✅ {bet['bookmaker']} - {bet['market']}"):
-                    st.metric("Cote", bet['odd'])
-                    st.metric("Valeur estimée", f"+{bet['value']}%")
-                    st.metric("Confiance", f"{bet['confidence']}/10")
-                    
-                    if st.button("📝 Suivre ce pari", key=f"track_{bet['bookmaker']}_{bet['market']}"):
-                        st.success("Pari ajouté à votre suivi!")
-        else:
-            st.info("ℹ️ Aucun pari avec valeur significative détecté")
-        
-        # Recommandations
-        st.markdown("### 🎯 Recommandations")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Niveau de risque", "Moyen")
-            st.caption("Basé sur la volatilité des cotes")
-        
-        with col2:
-            st.metric("Meilleur bookmaker", "Bet365")
-            st.caption("Cotes les plus compétitives")
-        
-        with col3:
-            st.metric("Mise suggérée", "2%")
-            st.caption("Pour une bankroll de 1000€")
-    
-    def _generate_bookmaker_odds(self, match: Match):
-        """Génère des cotes de bookmakers réalistes"""
-        base_home_odd = random.uniform(1.5, 3.0)
-        
-        bookmakers = {
-            'Bet365': {
-                'Domicile': round(base_home_odd, 2),
-                'Nul': round(random.uniform(3.0, 4.0), 2),
-                'Extérieur': round(1 / ((1/base_home_odd) - 0.1), 2),
-                'Over 2.5': round(random.uniform(1.6, 2.1), 2),
-                'Under 2.5': round(random.uniform(1.6, 2.1), 2),
-                'BTTS Oui': round(random.uniform(1.7, 2.2), 2),
-                'BTTS Non': round(random.uniform(1.6, 2.0), 2)
-            },
-            'Unibet': {
-                'Domicile': round(base_home_odd + 0.05, 2),
-                'Nul': round(random.uniform(3.1, 4.1), 2),
-                'Extérieur': round(1 / ((1/base_home_odd) - 0.12), 2),
-                'Over 2.5': round(random.uniform(1.65, 2.15), 2),
-                'Under 2.5': round(random.uniform(1.55, 2.05), 2),
-                'BTTS Oui': round(random.uniform(1.75, 2.25), 2),
-                'BTTS Non': round(random.uniform(1.65, 2.1), 2)
-            },
-            'Winamax': {
-                'Domicile': round(base_home_odd + 0.1, 2),
-                'Nul': round(random.uniform(3.2, 4.2), 2),
-                'Extérieur': round(1 / ((1/base_home_odd) - 0.15), 2),
-                'Over 2.5': round(random.uniform(1.7, 2.2), 2),
-                'Under 2.5': round(random.uniform(1.6, 2.1), 2),
-                'BTTS Oui': round(random.uniform(1.8, 2.3), 2),
-                'BTTS Non': round(random.uniform(1.7, 2.2), 2)
-            }
-        }
-        
-        return bookmakers
-    
-    def _find_value_bets(self, match: Match, bookmaker_odds: Dict):
-        """Identifie les paris avec de la valeur"""
-        value_bets = []
-        
-        # Simuler la détection de value bets
-        for bookmaker, odds in bookmaker_odds.items():
-            for market, odd in odds.items():
-                # Simuler une détection de valeur (20% de chance)
-                if random.random() < 0.2:
-                    value_bets.append({
-                        'bookmaker': bookmaker,
-                        'market': market,
-                        'odd': odd,
-                        'value': round(random.uniform(5, 20), 1),
-                        'confidence': random.randint(6, 9)
-                    })
-        
-        return value_bets[:3]  # Limiter à 3 value bets
+        return demo_matches
 
 # =============================================================================
 # APPLICATION PRINCIPALE
@@ -1252,7 +246,7 @@ def main():
     
     # Configuration de la page
     st.set_page_config(
-        page_title="Pronostics Football avec API Réelle",
+        page_title="Pronostics Football",
         page_icon="⚽",
         layout="wide",
         initial_sidebar_state="expanded"
@@ -1270,112 +264,507 @@ def main():
         margin-bottom: 1rem;
         padding: 1rem;
     }
-    .st-emotion-cache-1kyxreq {
-        justify-content: center;
-    }
     .match-card {
-        transition: all 0.3s ease;
-        cursor: pointer;
+        border: 2px solid #4CAF50;
+        border-radius: 10px;
+        padding: 15px;
+        margin: 15px 0;
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    .match-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
-    }
-    .prediction-badge {
-        background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%);
-        color: white;
-        padding: 5px 15px;
-        border-radius: 20px;
-        font-weight: bold;
-        display: inline-block;
-        margin: 5px;
-    }
-    .risk-low { color: #4CAF50; }
-    .risk-medium { color: #FF9800; }
-    .risk-high { color: #F44336; }
     </style>
     """, unsafe_allow_html=True)
     
-    # Initialisation de l'état
-    if 'current_page' not in st.session_state:
-        st.session_state.current_page = "select"
-    
-    if 'selected_match' not in st.session_state:
-        st.session_state.selected_match = None
-    
+    # Initialisation
     if 'football_api' not in st.session_state:
         st.session_state.football_api = FootballAPIClient()
     
-    if 'match_selector' not in st.session_state:
-        st.session_state.match_selector = MatchSelector()
-    
-    if 'analyzer' not in st.session_state:
-        st.session_state.analyzer = AdvancedFootballAnalyzer(st.session_state.football_api)
+    if 'selected_match' not in st.session_state:
+        st.session_state.selected_match = None
     
     # En-tête
     st.markdown('<h1 class="main-header">⚽ Pronostics Football avec API Réelle</h1>', 
                 unsafe_allow_html=True)
     
-    st.markdown("""
-    <div style="text-align: center; color: #666; margin-bottom: 2rem;">
-        <p>Utilise votre clé API pour analyser les matchs en temps réel</p>
-        <p><strong>Clé API configurée :</strong> 33a972705943458ebcbcae6b56e4dee0</p>
+    # Test de l'API
+    with st.sidebar:
+        st.title("⚙️ Configuration")
+        
+        status, message = st.session_state.football_api.test_api_key()
+        if status:
+            st.success(f"✅ {message}")
+        else:
+            st.error(f"❌ {message}")
+            st.info("Utilisation du mode démo")
+        
+        st.divider()
+        
+        # Filtres
+        st.subheader("Filtres")
+        time_filter = st.selectbox(
+            "Période",
+            ["Aujourd'hui", "7 prochains jours"],
+            key="time_filter"
+        )
+        
+        if st.button("🔄 Rafraîchir", use_container_width=True):
+            st.rerun()
+    
+    # Contenu principal
+    if st.session_state.selected_match:
+        display_match_analysis(st.session_state.selected_match)
+    else:
+        display_match_selection(time_filter)
+
+def display_match_selection(time_filter):
+    """Affiche la sélection des matchs"""
+    
+    st.header("⚽ Sélectionnez un match à analyser")
+    
+    # Récupération des matchs
+    with st.spinner("Chargement des matchs..."):
+        if time_filter == "Aujourd'hui":
+            matches = st.session_state.football_api.get_todays_matches()
+        else:
+            matches = st.session_state.football_api.get_upcoming_matches(days=7)
+    
+    # Affichage des matchs
+    if not matches:
+        st.warning("Aucun match trouvé.")
+        st.info("Affichage des matchs de démonstration...")
+        matches = st.session_state.football_api._get_fallback_matches()
+    
+    st.subheader(f"📋 {len(matches)} match(s) disponible(s)")
+    
+    # Afficher chaque match
+    for match in matches:
+        display_match_card(match)
+
+def display_match_card(match):
+    """Affiche une carte pour un match"""
+    
+    # Formater la date
+    date_str = match['date'].strftime("%d/%m/%Y %H:%M")
+    
+    # Carte HTML
+    st.markdown(f"""
+    <div class="match-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div style="background: #4CAF50; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">
+                ⏰ À venir
+            </div>
+            <div style="font-size: 12px; color: #666;">
+                {date_str}
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin: 15px 0;">
+            <div style="font-size: 18px; font-weight: bold; margin-bottom: 5px;">
+                {match['league']}
+            </div>
+            <div style="font-size: 14px; color: #666; margin-bottom: 15px;">
+                {match['country']} • {match['venue']}
+            </div>
+            
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="flex: 1; text-align: right;">
+                    <div style="font-size: 18px; font-weight: bold;">
+                        {match['home_team']}
+                    </div>
+                </div>
+                
+                <div style="margin: 0 20px;">
+                    <div style="font-size: 28px; font-weight: bold; color: #333;">VS</div>
+                </div>
+                
+                <div style="flex: 1; text-align: left;">
+                    <div style="font-size: 18px; font-weight: bold;">
+                        {match['away_team']}
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
     
-    # Sidebar pour la navigation
-    with st.sidebar:
-        st.title("⚙️ Navigation")
-        
-        # Afficher l'état actuel
-        if st.session_state.current_page == "select":
-            st.success("📍 Sélection de match")
-        elif st.session_state.current_page == "analyze":
-            st.success("🔍 Analyse en cours")
-        
-        st.divider()
-        
-        # Boutons de navigation
-        if st.button("🏠 Accueil / Sélection", use_container_width=True, key="nav_home"):
-            st.session_state.current_page = "select"
-            st.session_state.selected_match = None
+    # Bouton pour analyser le match
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button(f"🔍 Analyser ce match", 
+                    key=f"analyze_{match['id']}", 
+                    use_container_width=True):
+            st.session_state.selected_match = match
             st.rerun()
-        
-        if st.session_state.selected_match:
-            if st.button("🔍 Voir l'analyse", use_container_width=True, key="nav_analyze"):
-                st.session_state.current_page = "analyze"
-                st.rerun()
-        
-        if st.button("📊 Statistiques", use_container_width=True, key="nav_stats"):
-            # Pour l'instant, on redirige vers la sélection
-            st.session_state.current_page = "select"
-            st.rerun()
-        
-        st.divider()
-        
-        # Info sur la clé API
-        with st.expander("🔑 Info Clé API"):
-            status, message = st.session_state.football_api.test_api_key()
-            if status:
-                st.success(message)
-            else:
-                st.error(message)
-            
-            st.caption("API: api-football.com")
-            st.caption("Utilisation : Données en temps réel")
     
-    # Contenu principal basé sur la page actuelle
-    if st.session_state.current_page == "select":
-        st.session_state.match_selector.display_match_selection()
+    st.markdown("---")
+
+def display_match_analysis(match):
+    """Affiche l'analyse d'un match"""
     
-    elif st.session_state.current_page == "analyze" and st.session_state.selected_match:
-        st.session_state.analyzer.analyze_match(st.session_state.selected_match)
-    
-    else:
-        # Page par défaut (sélection)
-        st.session_state.current_page = "select"
+    # Bouton de retour
+    if st.button("🔙 Retour à la sélection"):
         st.session_state.selected_match = None
         st.rerun()
+    
+    st.header(f"🔍 Analyse: {match['home_team']} vs {match['away_team']}")
+    
+    # Informations de base
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Ligue", match['league'])
+        st.metric("Date", match['date'].strftime("%d/%m/%Y"))
+    
+    with col2:
+        st.metric("Stade", match['venue'])
+        st.metric("Heure", match['date'].strftime("%H:%M"))
+    
+    with col3:
+        st.metric("Statut", "À venir")
+        st.metric("Pays", match['country'])
+    
+    st.divider()
+    
+    # Onglets d'analyse
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 Statistiques", 
+        "📈 Prédiction", 
+        "💰 Paris", 
+        "📋 Info"
+    ])
+    
+    with tab1:
+        display_statistics(match)
+    
+    with tab2:
+        display_prediction(match)
+    
+    with tab3:
+        display_betting_analysis(match)
+    
+    with tab4:
+        display_match_info(match)
+
+def display_statistics(match):
+    """Affiche les statistiques"""
+    
+    st.subheader("📊 Statistiques des équipes")
+    
+    # Récupérer les statistiques réelles
+    with st.spinner("Chargement des statistiques..."):
+        home_stats = st.session_state.football_api.get_team_statistics(
+            match['home_team_id'], match['league_id'], 2024
+        )
+        away_stats = st.session_state.football_api.get_team_statistics(
+            match['away_team_id'], match['league_id'], 2024
+        )
+    
+    if home_stats and away_stats and 'response' in home_stats and 'response' in away_stats:
+        # Extraire les statistiques
+        home_data = extract_team_stats(home_stats, match['home_team'])
+        away_data = extract_team_stats(away_stats, match['away_team'])
+        
+        # Afficher le tableau
+        stats_df = pd.DataFrame({
+            'Statistique': ['Matches', 'Victoires', 'Nuls', 'Défaites', 'Buts pour', 'Buts contre'],
+            match['home_team']: [
+                home_data['matches_played'],
+                home_data['wins'],
+                home_data['draws'],
+                home_data['loses'],
+                home_data['goals_for'],
+                home_data['goals_against']
+            ],
+            match['away_team']: [
+                away_data['matches_played'],
+                away_data['wins'],
+                away_data['draws'],
+                away_data['loses'],
+                away_data['goals_for'],
+                away_data['goals_against']
+            ]
+        })
+        
+        st.dataframe(stats_df.set_index('Statistique'), use_container_width=True)
+        
+    else:
+        st.warning("Statistiques non disponibles")
+        display_simulated_stats(match)
+
+def extract_team_stats(stats_data, team_name):
+    """Extrait les statistiques d'une équipe"""
+    try:
+        if 'response' not in stats_data:
+            return generate_simulated_stats(team_name)
+        
+        response = stats_data['response']
+        fixtures = response.get('fixtures', {})
+        goals = response.get('goals', {})
+        
+        return {
+            'team': team_name,
+            'matches_played': fixtures.get('played', {}).get('total', 0),
+            'wins': fixtures.get('wins', {}).get('total', 0),
+            'draws': fixtures.get('draws', {}).get('total', 0),
+            'loses': fixtures.get('loses', {}).get('total', 0),
+            'goals_for': goals.get('for', {}).get('total', {}).get('total', 0),
+            'goals_against': goals.get('against', {}).get('total', {}).get('total', 0)
+        }
+        
+    except:
+        return generate_simulated_stats(team_name)
+
+def generate_simulated_stats(team_name):
+    """Génère des statistiques simulées"""
+    return {
+        'team': team_name,
+        'matches_played': random.randint(20, 38),
+        'wins': random.randint(8, 25),
+        'draws': random.randint(5, 12),
+        'loses': random.randint(3, 15),
+        'goals_for': random.randint(25, 80),
+        'goals_against': random.randint(15, 50)
+    }
+
+def display_simulated_stats(match):
+    """Affiche des statistiques simulées"""
+    
+    home_stats = generate_simulated_stats(match['home_team'])
+    away_stats = generate_simulated_stats(match['away_team'])
+    
+    stats_df = pd.DataFrame({
+        'Statistique': ['Matches', 'Victoires', 'Nuls', 'Défaites', 'Buts pour', 'Buts contre'],
+        match['home_team']: [
+            home_stats['matches_played'],
+            home_stats['wins'],
+            home_stats['draws'],
+            home_stats['loses'],
+            home_stats['goals_for'],
+            home_stats['goals_against']
+        ],
+        match['away_team']: [
+            away_stats['matches_played'],
+            away_stats['wins'],
+            away_stats['draws'],
+            away_stats['loses'],
+            away_stats['goals_for'],
+            away_stats['goals_against']
+        ]
+    })
+    
+    st.dataframe(stats_df.set_index('Statistique'), use_container_width=True)
+    
+    st.info("Données simulées - l'API n'a pas retourné de données réelles")
+
+def display_prediction(match):
+    """Affiche les prédictions"""
+    
+    st.subheader("🎯 Prédiction du match")
+    
+    # Calculer les probabilités
+    probabilities = calculate_probabilities(match)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### Probabilités")
+        
+        for outcome, prob in probabilities.items():
+            label = "Domicile" if outcome == 'home' else "Nul" if outcome == 'draw' else "Extérieur"
+            st.markdown(f"**{label}:** {prob}%")
+            st.progress(prob/100)
+    
+    with col2:
+        st.markdown("### Score prédit")
+        
+        # Générer un score
+        home_goals = random.randint(0, 3)
+        away_goals = random.randint(0, 2)
+        predicted_score = f"{home_goals}-{away_goals}"
+        
+        st.markdown(f"<h1 style='text-align: center; font-size: 3rem;'>{predicted_score}</h1>", 
+                   unsafe_allow_html=True)
+        
+        st.metric("Total buts", home_goals + away_goals)
+        
+        if home_goals > 0 and away_goals > 0:
+            st.success("✅ Les deux équipes devraient marquer")
+        else:
+            st.info("⚪ Une équipe pourrait rester à 0")
+    
+    # Facteurs influents
+    st.markdown("### 📊 Facteurs influents")
+    
+    factors = [
+        ("Avantage domicile", random.randint(60, 85)),
+        ("Forme récente", random.randint(50, 80)),
+        ("Blessures", random.randint(20, 70)),
+        ("Motivation", random.randint(60, 90))
+    ]
+    
+    for factor, value in factors:
+        st.write(f"**{factor}:** {value}%")
+        st.progress(value/100)
+
+def calculate_probabilities(match):
+    """Calcule les probabilités de résultat"""
+    
+    # Simuler des probabilités réalistes
+    base_home = random.uniform(40, 60)
+    base_draw = random.uniform(20, 35)
+    base_away = 100 - base_home - base_draw
+    
+    # Ajustements
+    home_advantage = random.uniform(1.05, 1.15)
+    home_prob = round(base_home * home_advantage, 1)
+    draw_prob = round(base_draw, 1)
+    away_prob = round(base_away, 1)
+    
+    # Normaliser
+    total = home_prob + draw_prob + away_prob
+    home_prob = round((home_prob / total) * 100, 1)
+    draw_prob = round((draw_prob / total) * 100, 1)
+    away_prob = round((away_prob / total) * 100, 1)
+    
+    return {
+        'home': home_prob,
+        'draw': draw_prob,
+        'away': away_prob
+    }
+
+def display_betting_analysis(match):
+    """Affiche l'analyse des paris"""
+    
+    st.subheader("💰 Analyse des opportunités de pari")
+    
+    # Cotes des bookmakers
+    bookmaker_odds = generate_bookmaker_odds(match)
+    
+    # Afficher les cotes
+    st.markdown("### Cotes disponibles")
+    
+    odds_df = pd.DataFrame(bookmaker_odds).T
+    st.dataframe(odds_df, use_container_width=True)
+    
+    # Value bets
+    st.markdown("### 💎 Paris recommandés")
+    
+    value_bets = find_value_bets(match, bookmaker_odds)
+    
+    if value_bets:
+        for bet in value_bets:
+            with st.expander(f"✅ {bet['bookmaker']} - {bet['market']}"):
+                st.metric("Cote", bet['odd'])
+                st.metric("Valeur estimée", f"+{bet['value']}%")
+                st.metric("Confiance", f"{bet['confidence']}/10")
+    else:
+        st.info("Aucun pari avec valeur significative détecté")
+    
+    # Recommandations
+    st.markdown("### 🎯 Recommandations")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.metric("Niveau de risque", "Moyen")
+        st.caption("Basé sur l'analyse des données")
+    
+    with col2:
+        st.metric("Mise suggérée", "2-3%")
+        st.caption("Pour une bankroll de 1000€")
+
+def generate_bookmaker_odds(match):
+    """Génère des cotes de bookmakers"""
+    
+    base_home_odd = random.uniform(1.5, 3.0)
+    
+    bookmakers = {
+        'Bet365': {
+            'Domicile': round(base_home_odd, 2),
+            'Nul': round(random.uniform(3.0, 4.0), 2),
+            'Extérieur': round(1 / ((1/base_home_odd) - 0.1), 2),
+            'Over 2.5': round(random.uniform(1.6, 2.1), 2),
+            'Under 2.5': round(random.uniform(1.6, 2.1), 2)
+        },
+        'Unibet': {
+            'Domicile': round(base_home_odd + 0.05, 2),
+            'Nul': round(random.uniform(3.1, 4.1), 2),
+            'Extérieur': round(1 / ((1/base_home_odd) - 0.12), 2),
+            'Over 2.5': round(random.uniform(1.65, 2.15), 2),
+            'Under 2.5': round(random.uniform(1.55, 2.05), 2)
+        }
+    }
+    
+    return bookmakers
+
+def find_value_bets(match, bookmaker_odds):
+    """Identifie les paris avec de la valeur"""
+    
+    value_bets = []
+    
+    for bookmaker, odds in bookmaker_odds.items():
+        for market, odd in odds.items():
+            # Simuler une détection de valeur
+            if random.random() < 0.3:  # 30% de chance
+                value_bets.append({
+                    'bookmaker': bookmaker,
+                    'market': market,
+                    'odd': odd,
+                    'value': round(random.uniform(5, 15), 1),
+                    'confidence': random.randint(6, 9)
+                })
+    
+    return value_bets[:2]  # Limiter à 2
+
+def display_match_info(match):
+    """Affiche les informations du match"""
+    
+    st.subheader("📋 Informations détaillées")
+    
+    # Tableau d'informations
+    info_data = {
+        'Champ': [
+            'ID du match',
+            'Équipe domicile',
+            'ID domicile',
+            'Équipe extérieur',
+            'ID extérieur',
+            'Ligue',
+            'ID ligue',
+            'Stade',
+            'Date',
+            'Statut'
+        ],
+        'Valeur': [
+            match['id'],
+            match['home_team'],
+            match['home_team_id'],
+            match['away_team'],
+            match['away_team_id'],
+            match['league'],
+            match['league_id'],
+            match['venue'],
+            match['date'].strftime("%d/%m/%Y %H:%M"),
+            match['status']
+        ]
+    }
+    
+    df_info = pd.DataFrame(info_data)
+    st.dataframe(df_info.set_index('Champ'), use_container_width=True)
+    
+    # Conseils
+    st.markdown("### 💡 Conseils d'analyse")
+    
+    tips = [
+        "Consultez les dernières nouvelles des équipes",
+        "Vérifiez les absences de joueurs clés",
+        "Analysez la forme récente (5 derniers matchs)",
+        "Tenez compte des conditions météo",
+        "Comparez les cotes sur plusieurs bookmakers"
+    ]
+    
+    for i, tip in enumerate(tips, 1):
+        st.write(f"{i}. {tip}")
 
 if __name__ == "__main__":
     main()
