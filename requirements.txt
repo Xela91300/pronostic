@@ -8,3 +8,4 @@ beautifulsoup4
 fake-useragent
 pytz
 feedparser
+plotly.graph_objects
