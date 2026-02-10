@@ -924,10 +924,25 @@ def render_predictions(api_manager):
                             if st.button("📊 Analyser", key=analyze_key):
                                 show_detailed_analysis(match, analysis, odds, i)
                     
-                    expander_key = generate_unique_key(f"expander_{home_team}_{away_team}")
-                    with st.expander("📋 Facteurs déterminants", expanded=False, key=expander_key):
+                    # CORRECTION ICI : Supprimer le paramètre 'key' de st.expander()
+                    # Créer un expander unique basé sur l'ID du match
+                    expander_id = f"expander_{home_team}_{away_team}_{i}"
+                    if 'expander_state' not in st.session_state:
+                        st.session_state.expander_state = {}
+                    
+                    # Initialiser l'état de l'expander si nécessaire
+                    if expander_id not in st.session_state.expander_state:
+                        st.session_state.expander_state[expander_id] = False
+                    
+                    # Créer un checkbox pour simuler un expander
+                    if st.checkbox(f"📋 Facteurs déterminants ({home_team} vs {away_team})", 
+                                  value=st.session_state.expander_state[expander_id],
+                                  key=f"expander_checkbox_{expander_id}"):
+                        st.session_state.expander_state[expander_id] = True
                         for factor in analysis['key_factors']:
                             st.markdown(f"✅ {factor}")
+                    else:
+                        st.session_state.expander_state[expander_id] = False
                     
                     st.divider()
                     
@@ -1356,7 +1371,9 @@ def render_scraping_page():
                 display_scraped_match(match, i)
     
     # Section d'information
-    with st.expander("ℹ️ Informations sur le scraping", expanded=False):
+    # CORRECTION ICI : Supprimer le paramètre 'expanded' et 'key' du st.expander()
+    expander_title = st.checkbox("ℹ️ Afficher les informations sur le scraping", value=False)
+    if expander_title:
         st.markdown("""
         **Sources utilisées :**
         - 🌐 **worldfootball.net** : Site de statistiques footballistiques
