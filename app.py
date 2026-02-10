@@ -9,6 +9,7 @@ import requests
 import json
 from pytz import timezone
 import warnings
+import hashlib
 warnings.filterwarnings('ignore')
 
 # Configuration de la page
@@ -26,6 +27,8 @@ if 'timezone' not in st.session_state:
     st.session_state.timezone = 'Europe/Paris'
 if 'last_update' not in st.session_state:
     st.session_state.last_update = datetime.now()
+if 'button_counter' not in st.session_state:
+    st.session_state.button_counter = 0
 
 # CSS personnalisé
 def load_css():
@@ -118,6 +121,12 @@ def load_css():
     }
     </style>
     """, unsafe_allow_html=True)
+
+# Fonction pour générer des clés uniques
+def generate_unique_key(base_string):
+    """Génère une clé unique basée sur une chaîne et un compteur"""
+    st.session_state.button_counter += 1
+    return f"{base_string}_{st.session_state.button_counter}_{hashlib.md5(base_string.encode()).hexdigest()[:8]}"
 
 # Classe API Manager
 class FootballAPIManager:
@@ -307,7 +316,7 @@ def main():
         
         if auto_refresh:
             refresh_rate = st.slider("Intervalle (secondes)", 30, 300, 60)
-            if st.button("🔄 Rafraîchir maintenant"):
+            if st.button("🔄 Rafraîchir maintenant", key="refresh_button"):
                 st.rerun()
         
         st.markdown("---")
@@ -391,12 +400,12 @@ def render_dashboard(api_manager, show_live):
         
         if live_data and 'response' in live_data and live_data['response']:
             matches = live_data['response']
-            for match in matches[:5]:  # Limiter à 5 matchs
-                display_live_match(match)
+            for i, match in enumerate(matches[:5]):  # Limiter à 5 matchs
+                display_live_match(match, i)
         else:
             # Mode démo
-            for match in DEMO_DATA['live_matches']:
-                display_live_match(match)
+            for i, match in enumerate(DEMO_DATA['live_matches']):
+                display_live_match(match, i)
     
     # Graphiques
     col1, col2 = st.columns(2)
@@ -441,8 +450,8 @@ def render_dashboard(api_manager, show_live):
         )
         st.plotly_chart(fig, use_container_width=True)
 
-def display_live_match(match):
-    """Affiche un match en direct"""
+def display_live_match(match, index):
+    """Affiche un match en direct avec une clé unique"""
     try:
         fixture = match.get('fixture', {})
         teams = match.get('teams', {})
@@ -504,11 +513,11 @@ def render_predictions(api_manager):
     # Filtres
     col1, col2, col3 = st.columns(3)
     with col1:
-        min_confidence = st.slider("Confiance minimale", 50, 95, 70)
+        min_confidence = st.slider("Confiance minimale", 50, 95, 70, key="min_confidence_slider")
     with col2:
-        max_odds = st.slider("Cote maximale", 1.1, 5.0, 3.0, 0.1)
+        max_odds = st.slider("Cote maximale", 1.1, 5.0, 3.0, 0.1, key="max_odds_slider")
     with col3:
-        bet_type = st.selectbox("Type de pari", ["Tous", "1X2", "Over/Under", "BTTS", "Double Chance"])
+        bet_type = st.selectbox("Type de pari", ["Tous", "1X2", "Over/Under", "BTTS", "Double Chance"], key="bet_type_select")
     
     # Prédictions
     for i, match in enumerate(matches[:10]):  # Limiter à 10 matchs
@@ -558,11 +567,14 @@ def render_predictions(api_manager):
                             st.metric("Meilleure cote", f"{odds}", 
                                      delta=f"+{round((odds-1)*100, 1)}%")
                             
-                            if st.button("📊 Analyser", key=f"analyze_{i}"):
-                                show_detailed_analysis(match, analysis, odds)
+                            # Bouton avec clé unique
+                            analyze_key = generate_unique_key(f"analyze_{home_team}_{away_team}")
+                            if st.button("📊 Analyser", key=analyze_key):
+                                show_detailed_analysis(match, analysis, odds, i)
                     
                     # Facteurs clés
-                    with st.expander("📋 Facteurs déterminants", expanded=False):
+                    expander_key = generate_unique_key(f"expander_{home_team}_{away_team}")
+                    with st.expander("📋 Facteurs déterminants", expanded=False, key=expander_key):
                         for factor in analysis['key_factors']:
                             st.markdown(f"✅ {factor}")
                     
@@ -571,8 +583,8 @@ def render_predictions(api_manager):
         except Exception as e:
             st.error(f"Erreur dans la prédiction: {str(e)}")
 
-def show_detailed_analysis(match, analysis, odds):
-    """Affiche une analyse détaillée"""
+def show_detailed_analysis(match, analysis, odds, index):
+    """Affiche une analyse détaillée avec clé unique"""
     st.markdown("### 📊 Analyse détaillée")
     
     col1, col2 = st.columns(2)
@@ -641,7 +653,7 @@ def render_statistics(api_manager):
     col1, col2 = st.columns(2)
     with col1:
         league_options = ["Ligue 1", "Premier League", "La Liga", "Bundesliga", "Serie A"]
-        selected_league = st.selectbox("Sélectionner une ligue", league_options)
+        selected_league = st.selectbox("Sélectionner une ligue", league_options, key="league_select")
     
     with col2:
         team_options = {
@@ -651,7 +663,7 @@ def render_statistics(api_manager):
             "Bundesliga": ["Bayern Munich", "Borussia Dortmund", "RB Leipzig", "Bayer Leverkusen", "Eintracht Frankfurt"],
             "Serie A": ["Juventus", "AC Milan", "Inter Milan", "Napoli", "Roma"]
         }
-        selected_team = st.selectbox("Sélectionner une équipe", team_options[selected_league])
+        selected_team = st.selectbox("Sélectionner une équipe", team_options[selected_league], key="team_select")
     
     # Graphiques
     tab1, tab2, tab3 = st.tabs(["Performance", "Tendances", "Comparaisons"])
@@ -747,7 +759,7 @@ def render_statistics(api_manager):
         )
 
 def render_matches(api_manager, show_live):
-    """Affiche les matchs"""
+    """Affiche les matchs avec des clés uniques"""
     st.markdown("### ⚽ Calendrier des Matchs")
     
     # Sélection de la date
@@ -755,24 +767,29 @@ def render_matches(api_manager, show_live):
     with col1:
         date_range = st.selectbox(
             "Période",
-            ["Aujourd'hui", "Demain", "Week-end", "7 prochains jours", "Tous"]
+            ["Aujourd'hui", "Demain", "Week-end", "7 prochains jours", "Tous"],
+            key="date_range_select"
         )
     
     with col2:
         league_filter = st.multiselect(
             "Ligues",
             ["Ligue 1", "Premier League", "La Liga", "Bundesliga", "Serie A", "Champions League"],
-            default=["Ligue 1", "Premier League"]
+            default=["Ligue 1", "Premier League"],
+            key="league_multiselect"
         )
     
     with col3:
-        only_live = st.checkbox("En direct seulement", value=False)
+        only_live = st.checkbox("En direct seulement", value=False, key="only_live_checkbox")
     
     # Générer des matchs
     matches = []
+    match_counter = 0
     for league in league_filter:
         for i in range(5):
+            match_counter += 1
             matches.append({
+                'id': match_counter,
                 'date': (datetime.now() + timedelta(days=np.random.randint(0, 7))).strftime('%Y-%m-%d'),
                 'time': f"{np.random.randint(12, 22)}:{np.random.choice(['00', '15', '30', '45'])}",
                 'league': league,
@@ -812,7 +829,9 @@ def render_matches(api_manager, show_live):
                 st.markdown(f"{match['league']} • {match['time']}")
             
             with col6:
-                if st.button("📊", key=f"stats_{match['home']}_{match['away']}"):
+                # Bouton avec clé unique basée sur l'ID du match
+                button_key = generate_unique_key(f"stats_{match['id']}_{match['home']}_{match['away']}")
+                if st.button("📊", key=button_key):
                     st.info(f"Analyse détaillée pour {match['home']} vs {match['away']}")
             
             st.divider()
@@ -824,7 +843,8 @@ def render_standings(api_manager):
     # Sélection de la ligue
     selected_league = st.selectbox(
         "Choisir une ligue",
-        ["Ligue 1", "Premier League", "La Liga", "Bundesliga", "Serie A", "Champions League"]
+        ["Ligue 1", "Premier League", "La Liga", "Bundesliga", "Serie A", "Champions League"],
+        key="standings_league_select"
     )
     
     # Générer un classement
