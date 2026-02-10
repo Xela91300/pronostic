@@ -11,6 +11,7 @@ pyarrow>=12.0.0  # For better DataFrame performance
 
 # Date and time handling
 python-dateutil>=2.8.2
+pytz==2023.3
 
 # Optional: Data visualization (if you add charts later)
 plotly>=5.17.0
@@ -23,6 +24,7 @@ joblib>=1.3.0
 # Optional: API integration (if you add real data sources later)
 requests>=2.31.0
 beautifulsoup4>=4.12.0
+cloudscraper==1.2.71
 
 # Optional: Database (if you add data persistence later)
 sqlalchemy>=2.0.0
