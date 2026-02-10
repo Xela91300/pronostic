@@ -44,7 +44,7 @@ st.markdown("""
 
 # Sidebar avec navigation
 with st.sidebar:
-    st.image("assets/images/logo_square.svg", width=100)
+    st.image("https://cdn-icons-png.flaticon.com/512/2784/2784403.png", width=100)
     
     st.markdown("## Navigation")
     
