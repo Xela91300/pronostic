@@ -1,16 +1,37 @@
-# ⚡ Sports Oracle
+# ⚽ Football Betting Analytics
 
-Prédictions intelligentes de matchs sportifs basées sur la distribution de Poisson.
+Application d'analyse de données footballistiques pour les paris sportifs, développée avec Streamlit.
 
-## 🎯 Fonctionnalités
+## 🚀 Fonctionnalités
 
-- **Football** : Prédictions 1X2, scores exacts, BTTS, Over/Under
-- **Tennis** : Probabilités de victoire, scores en sets
-- **NBA** : Points attendus, prédictions par quart-temps
+### 📊 Dashboard
+- KPI et indicateurs de performance
+- Visualisations des tendances
+- Matchs du jour
 
-## 🚀 Installation Locale
+### 🔮 Prédictions CIA
+- Analyse intelligente des matchs
+- Graphiques radar comparatifs
+- Recommandations personnalisées
 
-1. **Cloner le dépôt**
+### 📈 Statistiques
+- Analyse des séries statistiques
+- Visualisations interactives
+- Filtres avancés
+
+### 🏆 Top 50
+- Classement des meilleures opportunités
+- Filtres par type de pari
+- Données historiques
+
+### 🔔 Alertes
+- Notifications en temps réel
+- Configuration personnalisée
+- Suivi des performances
+
+## 🛠 Installation
+
+1. **Cloner le repository :**
 ```bash
-git clone https://github.com/votre-username/sports-oracle.git
-cd sports-oracle
+git clone https://github.com/votre-username/football-betting-analytics.git
+cd football-betting-analytics
