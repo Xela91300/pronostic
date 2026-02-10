@@ -1,16 +1,99 @@
 import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+import plotly.express as px
+from datetime import datetime, timedelta
+import time
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
 import re
 import random
-from datetime import datetime
-import time
+import pytz
+
+# Configuration de la page
+st.set_page_config(
+    page_title="⚽ Football Analytics Pro",
+    page_icon="⚽",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Initialisation des variables de session
+if 'scraper' not in st.session_state:
+    st.session_state.scraper = None
+if 'last_update' not in st.session_state:
+    st.session_state.last_update = datetime.now()
+
+# CSS personnalisé
+def load_css():
+    st.markdown("""
+    <style>
+    .main-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 10px;
+        margin-bottom: 2rem;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    
+    .metric-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 1rem;
+    }
+    
+    .live-badge {
+        background: #ff4757;
+        color: white;
+        padding: 0.2rem 0.5rem;
+        border-radius: 12px;
+        font-size: 0.8rem;
+        font-weight: bold;
+        animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.7; }
+        100% { opacity: 1; }
+    }
+    
+    .match-row {
+        background: white;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 0.5rem 0;
+        border-left: 4px solid #667eea;
+        transition: all 0.3s;
+    }
+    
+    .match-row:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 5px;
+        padding: 0.5rem 1rem;
+        font-weight: 600;
+    }
+    
+    .stButton > button:hover {
+        background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # ============================================================================
-# NOUVELLE CLASSE DE SCRAPING FONCTIONNELLE
+# CLASSE DE SCRAPING SIMPLIFIÉE ET FIABLE
 # ============================================================================
-class WorkingFootballScraper:
+class FootballScraper:
     def __init__(self):
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -18,202 +101,174 @@ class WorkingFootballScraper:
             'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
         }
     
-    def scrape_matches(self, source="worldfootball"):
-        """
-        Fonction principale de scraping - utilise uniquement les sources fiables
-        """
-        if source == "worldfootball":
-            return self.scrape_worldfootball_reliable()
-        elif source == "live_scores":
-            return self.scrape_live_scores_direct()
-        elif source == "flashscore_mobile":
-            return self.scrape_flashscore_mobile()
-        elif source == "api_fallback":
-            return self.try_free_api_fallback()
+    def get_matches(self, source="demo", league="Ligue 1"):
+        """Récupère les matchs selon la source choisie"""
+        if source == "demo":
+            return self.get_demo_matches(league)
+        elif source == "worldfootball":
+            return self.scrape_worldfootball()
+        elif source == "football_api":
+            return self.get_api_matches()
         else:
-            return self.get_realistic_demo_matches()
+            return self.get_demo_matches(league)
     
-    # ============================================================================
-    # SOURCE 1: WORLDFOOTBALL - FIABLE ET ACCESSIBLE
-    # ============================================================================
-    def scrape_worldfootball_reliable(self):
-        """Version éprouvée pour WorldFootball"""
-        try:
-            # URL qui marche presque toujours
-            url = "https://www.worldfootball.net/live_commentary/"
-            
-            # Ajouter un délai aléatoire
-            time.sleep(random.uniform(1, 3))
-            
-            response = requests.get(url, headers=self.headers, timeout=15)
-            
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.content, 'html.parser')
-                matches = []
-                
-                # Méthode robuste: chercher tout texte contenant des scores
-                text_content = soup.get_text()
-                
-                # Pattern pour trouver des matchs: "Team1 2-1 Team2"
-                pattern = r'([A-ZÀ-Ÿ][a-zà-ÿ\.\s]+(?:\s[A-ZÀ-Ÿ][a-zà-ÿ\.]+)*)\s+(\d+)[\:\-](\d+)\s+([A-ZÀ-Ÿ][a-zà-ÿ\.\s]+(?:\s[A-ZÀ-Ÿ][a-zà-ÿ\.]+)*)'
-                
-                matches_found = re.findall(pattern, text_content)
-                
-                for match in matches_found[:15]:  # Limiter à 15 matchs
-                    home_team, home_score, away_score, away_team = match
-                    
-                    # Nettoyer les noms d'équipes
-                    home_team = home_team.strip()
-                    away_team = away_team.strip()
-                    
-                    # Détecter la ligue
-                    league = self.detect_league(home_team, away_team)
-                    
-                    matches.append({
-                        'home_team': home_team,
-                        'away_team': away_team,
-                        'home_score': home_score,
-                        'away_score': away_score,
-                        'status': 'FT',  # WorldFootball montre souvent les résultats
-                        'league': league,
-                        'match_time': "FT",
-                        'source': 'worldfootball',
-                        'reliable': True
-                    })
-                
-                if matches:
-                    return matches
-                else:
-                    # Fallback: chercher dans les tables
-                    return self.extract_from_tables(soup)
-            else:
-                st.warning(f"WorldFootball: Code {response.status_code}")
-                return self.get_realistic_demo_matches()
-                
-        except Exception as e:
-            st.error(f"Erreur WorldFootball: {str(e)}")
-            return self.get_realistic_demo_matches()
-    
-    def extract_from_tables(self, soup):
-        """Extrait les matchs des tables HTML"""
+    def get_demo_matches(self, league="Ligue 1"):
+        """Retourne des données de démo réalistes"""
+        # Définir les équipes par ligue
+        leagues_data = {
+            "Ligue 1": {
+                "teams": ["Paris SG", "Marseille", "Lyon", "Monaco", "Lille", "Nice", "Rennes", "Lens", "Strasbourg", "Montpellier"],
+                "matches": [
+                    ("Paris SG", "Marseille", 2, 1),
+                    ("Lyon", "Lille", 1, 1),
+                    ("Monaco", "Nice", 3, 2),
+                    ("Rennes", "Lens", 2, 0),
+                    ("Strasbourg", "Montpellier", 1, 0)
+                ]
+            },
+            "Premier League": {
+                "teams": ["Manchester City", "Liverpool", "Arsenal", "Chelsea", "Tottenham", "Manchester United", "Newcastle", "Aston Villa", "Brighton", "West Ham"],
+                "matches": [
+                    ("Manchester City", "Liverpool", 1, 1),
+                    ("Arsenal", "Chelsea", 2, 2),
+                    ("Tottenham", "Manchester United", 2, 1),
+                    ("Newcastle", "Aston Villa", 3, 1),
+                    ("Brighton", "West Ham", 2, 0)
+                ]
+            },
+            "La Liga": {
+                "teams": ["Real Madrid", "Barcelona", "Atletico Madrid", "Sevilla", "Valencia", "Real Betis", "Villarreal", "Athletic Bilbao", "Real Sociedad", "Celta Vigo"],
+                "matches": [
+                    ("Real Madrid", "Barcelona", 2, 1),
+                    ("Atletico Madrid", "Sevilla", 1, 0),
+                    ("Valencia", "Real Betis", 2, 2),
+                    ("Villarreal", "Athletic Bilbao", 3, 1),
+                    ("Real Sociedad", "Celta Vigo", 2, 0)
+                ]
+            },
+            "Bundesliga": {
+                "teams": ["Bayern Munich", "Borussia Dortmund", "RB Leipzig", "Bayer Leverkusen", "Eintracht Frankfurt", "Wolfsburg", "Borussia Mönchengladbach", "Freiburg", "Union Berlin", "Mainz"],
+                "matches": [
+                    ("Bayern Munich", "Borussia Dortmund", 4, 2),
+                    ("RB Leipzig", "Bayer Leverkusen", 3, 1),
+                    ("Eintracht Frankfurt", "Wolfsburg", 2, 2),
+                    ("Borussia Mönchengladbach", "Freiburg", 1, 0),
+                    ("Union Berlin", "Mainz", 2, 1)
+                ]
+            },
+            "Serie A": {
+                "teams": ["Juventus", "AC Milan", "Inter Milan", "Napoli", "Roma", "Lazio", "Atalanta", "Fiorentina", "Bologna", "Torino"],
+                "matches": [
+                    ("Juventus", "AC Milan", 1, 0),
+                    ("Inter Milan", "Napoli", 2, 2),
+                    ("Roma", "Lazio", 3, 2),
+                    ("Atalanta", "Fiorentina", 2, 1),
+                    ("Bologna", "Torino", 1, 1)
+                ]
+            }
+        }
+        
+        # Récupérer les données de la ligue
+        league_data = leagues_data.get(league, leagues_data["Ligue 1"])
+        teams = league_data["teams"]
+        base_matches = league_data["matches"]
+        
         matches = []
+        status_options = ['NS', 'LIVE', 'HT', 'FT']
+        weights = [0.3, 0.2, 0.1, 0.4]  # Probabilités
         
-        # Chercher toutes les tables
-        tables = soup.find_all('table')
+        # Générer 8-10 matchs
+        num_matches = random.randint(8, 10)
         
-        for table in tables:
-            rows = table.find_all('tr')
-            for row in rows:
-                cells = row.find_all('td')
-                if len(cells) >= 4:
-                    try:
-                        # Format typique: Heure | Équipes | Score
-                        time_cell = cells[0].text.strip()
-                        teams_cell = cells[1].text.strip()
-                        score_cell = cells[2].text.strip()
-                        
-                        if ' - ' in teams_cell and any(c.isdigit() for c in score_cell):
-                            home_team, away_team = teams_cell.split(' - ', 1)
-                            
-                            # Nettoyer le score
-                            score_match = re.search(r'(\d+)[\:\-](\d+)', score_cell)
-                            if score_match:
-                                home_score, away_score = score_match.groups()
-                            else:
-                                home_score, away_score = "0", "0"
-                            
-                            # Détecter le statut
-                            if "'" in time_cell:
-                                status = 'LIVE'
-                                elapsed = time_cell.replace("'", "")
-                            elif time_cell.upper() in ['HT', 'FT']:
-                                status = time_cell.upper()
-                                elapsed = None
-                            else:
-                                status = 'NS'
-                                elapsed = None
-                            
-                            league = self.detect_league(home_team, away_team)
-                            
-                            matches.append({
-                                'home_team': home_team.strip(),
-                                'away_team': away_team.strip(),
-                                'home_score': home_score,
-                                'away_score': away_score,
-                                'status': status,
-                                'elapsed': elapsed,
-                                'league': league,
-                                'match_time': time_cell,
-                                'source': 'worldfootball',
-                                'reliable': True
-                            })
-                    except:
-                        continue
+        for i in range(num_matches):
+            if i < len(base_matches):
+                # Utiliser les matchs prédéfinis
+                home, away, h_score, a_score = base_matches[i]
+            else:
+                # Générer des matchs aléatoires
+                home = random.choice(teams)
+                away = random.choice([t for t in teams if t != home])
+                h_score = random.randint(0, 4)
+                a_score = random.randint(0, 4)
+            
+            # Choisir un statut
+            status = random.choices(status_options, weights=weights)[0]
+            
+            if status == 'LIVE':
+                elapsed = random.randint(30, 85)
+                match_time = f"{elapsed}'"
+            elif status == 'HT':
+                elapsed = 45
+                match_time = "HT"
+            elif status == 'FT':
+                elapsed = None
+                match_time = "FT"
+            else:  # NS
+                elapsed = None
+                hour = random.randint(14, 22)
+                minute = random.choice(['00', '15', '30', '45'])
+                match_time = f"{hour}:{minute}"
+            
+            matches.append({
+                'home_team': home,
+                'away_team': away,
+                'home_score': str(h_score) if status in ['LIVE', 'HT', 'FT'] else "0",
+                'away_score': str(a_score) if status in ['LIVE', 'HT', 'FT'] else "0",
+                'status': status,
+                'elapsed': str(elapsed) if elapsed else None,
+                'league': league,
+                'match_time': match_time,
+                'source': 'demo'
+            })
         
-        return matches[:10] if matches else self.get_realistic_demo_matches()
+        return matches
     
-    # ============================================================================
-    # SOURCE 2: LIVE SCORES DIRECT (API alternative)
-    # ============================================================================
-    def scrape_live_scores_direct(self):
-        """Utilise des sources de scores en direct plus accessibles"""
+    def scrape_worldfootball(self):
+        """Tente de scraper WorldFootball.net"""
         try:
-            # Option 1: livescore.com (version mobile)
-            url = "https://www.livescore.com"
+            url = "https://www.worldfootball.net/live_commentary/"
             response = requests.get(url, headers=self.headers, timeout=10)
             
             if response.status_code == 200:
                 soup = BeautifulSoup(response.content, 'html.parser')
                 matches = []
                 
-                # Chercher des éléments avec des scores
-                score_elements = soup.find_all(text=re.compile(r'\d+\s*[-:]\s*\d+'))
+                # Recherche simplifiée
+                text = soup.get_text()
                 
-                for element in score_elements[:20]:
-                    text = element.strip()
-                    # Pattern pour extraire équipes et scores
-                    pattern = r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(\d+)\s*[-:]\s*(\d+)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)'
-                    match = re.search(pattern, text)
+                # Pattern pour trouver des scores
+                pattern = r'([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)\s+(\d+)[\-\:]\s*(\d+)\s+([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)'
+                found_matches = re.findall(pattern, text)
+                
+                for match in found_matches[:10]:
+                    home_team, home_score, away_score, away_team = match
                     
-                    if match:
-                        home_team, home_score, away_score, away_team = match.groups()
-                        
-                        matches.append({
-                            'home_team': home_team.strip(),
-                            'away_team': away_team.strip(),
-                            'home_score': home_score,
-                            'away_score': away_score,
-                            'status': 'LIVE',
-                            'league': 'Live Score',
-                            'match_time': 'Live',
-                            'source': 'livescore',
-                            'reliable': True
-                        })
+                    matches.append({
+                        'home_team': home_team.strip(),
+                        'away_team': away_team.strip(),
+                        'home_score': home_score,
+                        'away_score': away_score,
+                        'status': 'FT',
+                        'league': self.detect_league(home_team, away_team),
+                        'match_time': 'FT',
+                        'source': 'worldfootball'
+                    })
                 
                 if matches:
                     return matches
-                else:
-                    # Option 2: football-data.org API gratuite
-                    return self.try_free_api_fallback()
             
-            return self.get_realistic_demo_matches()
+            # Fallback sur démo
+            return self.get_demo_matches("Ligue 1")
             
         except Exception as e:
-            st.warning(f"LiveScores: {str(e)}")
-            return self.get_realistic_demo_matches()
+            return self.get_demo_matches("Ligue 1")
     
-    # ============================================================================
-    # SOURCE 3: API FOOTBALL-DATA.ORG (GRATUITE)
-    # ============================================================================
-    def try_free_api_fallback(self):
-        """Utilise l'API gratuite de football-data.org"""
+    def get_api_matches(self):
+        """Essaie l'API football-data.org"""
         try:
-            # Pas besoin de clé pour les données limitées gratuites
+            # Essayer l'API gratuite
             url = "https://api.football-data.org/v4/matches"
-            headers = {
-                'X-Auth-Token': '',  # Laisser vide pour version gratuite
-                'User-Agent': 'FootballApp/1.0'
-            }
+            headers = {'X-Auth-Token': ''}  # Vide pour version gratuite
             
             response = requests.get(url, headers=headers, timeout=10)
             
@@ -221,7 +276,7 @@ class WorkingFootballScraper:
                 data = response.json()
                 matches = []
                 
-                for match in data.get('matches', [])[:15]:
+                for match in data.get('matches', [])[:10]:
                     home_team = match.get('homeTeam', {}).get('name', 'Home')
                     away_team = match.get('awayTeam', {}).get('name', 'Away')
                     score = match.get('score', {})
@@ -231,426 +286,142 @@ class WorkingFootballScraper:
                     
                     status = match.get('status', 'FINISHED')
                     if status == 'LIVE':
-                        status = 'LIVE'
+                        status_display = 'LIVE'
                     elif status == 'FINISHED':
-                        status = 'FT'
+                        status_display = 'FT'
                     else:
-                        status = 'NS'
+                        status_display = 'NS'
                     
                     matches.append({
                         'home_team': home_team,
                         'away_team': away_team,
                         'home_score': home_score,
                         'away_score': away_score,
-                        'status': status,
+                        'status': status_display,
                         'league': match.get('competition', {}).get('name', 'Unknown'),
                         'match_time': match.get('utcDate', '')[:10],
-                        'source': 'football-data.org',
-                        'reliable': True
+                        'source': 'football-data.org'
                     })
                 
                 return matches
             
-            return self.get_realistic_demo_matches()
+            return self.get_demo_matches("Ligue 1")
             
-        except Exception as e:
-            st.warning(f"API fallback: {str(e)}")
-            return self.get_realistic_demo_matches()
-    
-    # ============================================================================
-    # DONNÉES DE DÉMO RÉALISTES
-    # ============================================================================
-    def get_realistic_demo_matches(self):
-        """Retourne des données de démo réalistes qui semblent vraies"""
-        # Données basées sur de vrais matchs récents
-        real_matches = [
-            # Ligue 1
-            {'home': 'Paris SG', 'away': 'Marseille', 'h_score': 2, 'a_score': 1, 'league': 'Ligue 1'},
-            {'home': 'Lyon', 'away': 'Lille', 'h_score': 1, 'a_score': 1, 'league': 'Ligue 1'},
-            {'home': 'Monaco', 'away': 'Nice', 'h_score': 3, 'a_score': 2, 'league': 'Ligue 1'},
-            {'home': 'Rennes', 'away': 'Lens', 'h_score': 2, 'a_score': 0, 'league': 'Ligue 1'},
-            
-            # Premier League
-            {'home': 'Manchester City', 'away': 'Liverpool', 'h_score': 1, 'a_score': 1, 'league': 'Premier League'},
-            {'home': 'Arsenal', 'away': 'Chelsea', 'h_score': 2, 'a_score': 2, 'league': 'Premier League'},
-            {'home': 'Tottenham', 'away': 'Manchester United', 'h_score': 2, 'a_score': 1, 'league': 'Premier League'},
-            {'home': 'Newcastle', 'away': 'Aston Villa', 'h_score': 3, 'a_score': 1, 'league': 'Premier League'},
-            
-            # La Liga
-            {'home': 'Real Madrid', 'away': 'Barcelona', 'h_score': 2, 'a_score': 1, 'league': 'La Liga'},
-            {'home': 'Atletico Madrid', 'away': 'Sevilla', 'h_score': 1, 'a_score': 0, 'league': 'La Liga'},
-            {'home': 'Valencia', 'away': 'Real Betis', 'h_score': 2, 'a_score': 2, 'league': 'La Liga'},
-            
-            # Champions League
-            {'home': 'Bayern Munich', 'away': 'Paris SG', 'h_score': 1, 'a_score': 0, 'league': 'Champions League'},
-            {'home': 'Real Madrid', 'away': 'Manchester City', 'h_score': 3, 'a_score': 3, 'league': 'Champions League'},
-        ]
-        
-        matches = []
-        
-        for i, match_data in enumerate(real_matches):
-            # Choisir un statut aléatoire mais réaliste
-            status_weights = {'FT': 0.6, 'LIVE': 0.2, 'HT': 0.1, 'NS': 0.1}
-            status = random.choices(
-                list(status_weights.keys()), 
-                weights=list(status_weights.values())
-            )[0]
-            
-            # Déterminer le temps/score selon le statut
-            if status == 'LIVE':
-                elapsed = random.randint(30, 85)
-                match_time = f"{elapsed}'"
-                # Pour un match en cours, ajuster les scores possibles
-                max_score = min(match_data['h_score'], match_data['a_score']) + 1
-                home_score = random.randint(0, max_score)
-                away_score = random.randint(0, max_score)
-            elif status == 'HT':
-                match_time = "HT"
-                elapsed = 45
-                home_score = match_data['h_score']
-                away_score = match_data['a_score']
-            elif status == 'FT':
-                match_time = "FT"
-                elapsed = None
-                home_score = match_data['h_score']
-                away_score = match_data['a_score']
-            else:  # NS
-                match_time = f"{random.randint(15, 21)}:{random.choice(['00', '15', '30', '45'])}"
-                elapsed = None
-                home_score = 0
-                away_score = 0
-            
-            matches.append({
-                'home_team': match_data['home'],
-                'away_team': match_data['away'],
-                'home_score': str(home_score),
-                'away_score': str(away_score),
-                'status': status,
-                'elapsed': str(elapsed) if elapsed else None,
-                'league': match_data['league'],
-                'match_time': match_time,
-                'source': 'demo',
-                'reliable': True,
-                'realistic': True
-            })
-        
-        # Mélanger pour plus de réalisme
-        random.shuffle(matches)
-        return matches[:12]  # Retourner 12 matchs
+        except:
+            return self.get_demo_matches("Ligue 1")
     
     def detect_league(self, home_team, away_team):
-        """Détecte la ligue de manière intelligente"""
-        teams_lower = f"{home_team.lower()} {away_team.lower()}"
+        """Détecte la ligue basée sur les équipes"""
+        teams = f"{home_team.lower()} {away_team.lower()}"
         
-        league_patterns = {
-            'Ligue 1': ['psg', 'marseille', 'lyon', 'monaco', 'lille', 'nice', 'rennes', 'lens', 'strasbourg'],
-            'Premier League': ['manchester', 'liverpool', 'arsenal', 'chelsea', 'tottenham', 'newcastle', 'aston villa'],
-            'La Liga': ['real madrid', 'barcelona', 'atletico', 'sevilla', 'valencia', 'real betis', 'villarreal'],
-            'Bundesliga': ['bayern', 'dortmund', 'leipzig', 'leverkusen', 'frankfurt'],
-            'Serie A': ['juventus', 'milan', 'inter', 'napoli', 'roma', 'lazio', 'atalanta'],
-            'Champions League': ['real madrid', 'barcelona', 'bayern', 'psg', 'manchester city', 'liverpool']
-        }
-        
-        for league, patterns in league_patterns.items():
-            if any(pattern in teams_lower for pattern in patterns):
-                return league
-        
-        return 'Other League'
+        if any(x in teams for x in ['psg', 'marseille', 'lyon', 'monaco', 'lille']):
+            return "Ligue 1"
+        elif any(x in teams for x in ['manchester', 'liverpool', 'arsenal', 'chelsea', 'tottenham']):
+            return "Premier League"
+        elif any(x in teams for x in ['real madrid', 'barcelona', 'atletico', 'sevilla', 'valencia']):
+            return "La Liga"
+        elif any(x in teams for x in ['bayern', 'dortmund', 'leipzig', 'frankfurt']):
+            return "Bundesliga"
+        elif any(x in teams for x in ['juventus', 'milan', 'inter', 'napoli', 'roma']):
+            return "Serie A"
+        else:
+            return "Champions League"
     
     def get_standings(self, league="Ligue 1"):
-        """Récupère ou génère des classements réalistes"""
-        # Classements réalistes basés sur la saison en cours
+        """Génère des classements réalistes"""
+        # Classements par défaut basés sur les positions actuelles
         standings_data = {
-            'Ligue 1': [
-                {'team': 'Paris SG', 'points': 68, 'played': 28, 'gd': 45},
-                {'team': 'Marseille', 'points': 60, 'played': 28, 'gd': 22},
-                {'team': 'Lyon', 'points': 56, 'played': 28, 'gd': 18},
-                {'team': 'Lille', 'points': 54, 'played': 28, 'gd': 15},
-                {'team': 'Monaco', 'points': 52, 'played': 28, 'gd': 12},
-                {'team': 'Rennes', 'points': 50, 'played': 28, 'gd': 10},
-                {'team': 'Nice', 'points': 48, 'played': 28, 'gd': 8},
-                {'team': 'Lens', 'points': 46, 'played': 28, 'gd': 5},
+            "Ligue 1": [
+                {"team": "Paris SG", "points": 68, "gd": 45},
+                {"team": "Marseille", "points": 60, "gd": 22},
+                {"team": "Lyon", "points": 56, "gd": 18},
+                {"team": "Lille", "points": 54, "gd": 15},
+                {"team": "Monaco", "points": 52, "gd": 12},
+                {"team": "Rennes", "points": 50, "gd": 10},
+                {"team": "Nice", "points": 48, "gd": 8},
+                {"team": "Lens", "points": 46, "gd": 5}
             ],
-            'Premier League': [
-                {'team': 'Manchester City', 'points': 70, 'played': 30, 'gd': 48},
-                {'team': 'Liverpool', 'points': 68, 'played': 30, 'gd': 42},
-                {'team': 'Arsenal', 'points': 65, 'played': 30, 'gd': 38},
-                {'team': 'Chelsea', 'points': 58, 'played': 30, 'gd': 25},
-                {'team': 'Tottenham', 'points': 56, 'played': 30, 'gd': 20},
-                {'team': 'Manchester United', 'points': 54, 'played': 30, 'gd': 15},
-                {'team': 'Newcastle', 'points': 52, 'played': 30, 'gd': 12},
-                {'team': 'Aston Villa', 'points': 50, 'played': 30, 'gd': 8},
+            "Premier League": [
+                {"team": "Manchester City", "points": 70, "gd": 48},
+                {"team": "Liverpool", "points": 68, "gd": 42},
+                {"team": "Arsenal", "points": 65, "gd": 38},
+                {"team": "Chelsea", "points": 58, "gd": 25},
+                {"team": "Tottenham", "points": 56, "gd": 20},
+                {"team": "Manchester United", "points": 54, "gd": 15},
+                {"team": "Newcastle", "points": 52, "gd": 12},
+                {"team": "Aston Villa", "points": 50, "gd": 8}
+            ],
+            "La Liga": [
+                {"team": "Real Madrid", "points": 72, "gd": 40},
+                {"team": "Barcelona", "points": 65, "gd": 35},
+                {"team": "Atletico Madrid", "points": 62, "gd": 28},
+                {"team": "Sevilla", "points": 55, "gd": 15},
+                {"team": "Valencia", "points": 52, "gd": 12},
+                {"team": "Real Betis", "points": 50, "gd": 10},
+                {"team": "Villarreal", "points": 48, "gd": 8},
+                {"team": "Athletic Bilbao", "points": 46, "gd": 5}
             ]
         }
         
-        if league in standings_data:
-            standings = []
-            for i, team_data in enumerate(standings_data[league], 1):
-                # Calculer les autres stats
-                wins = random.randint(team_data['points']//3 - 2, team_data['points']//3 + 2)
-                draws = team_data['points'] - (wins * 3)
-                losses = team_data['played'] - wins - draws
-                
-                # Buts pour/contre basés sur la différence
-                goals_for = random.randint(40, 60)
-                goals_against = goals_for - team_data['gd']
-                
-                standings.append({
-                    'position': i,
-                    'team': team_data['team'],
-                    'matches': str(team_data['played']),
-                    'wins': str(wins),
-                    'draws': str(draws),
-                    'losses': str(losses),
-                    'goals_for': str(goals_for),
-                    'goals_against': str(goals_against),
-                    'goal_diff': f"+{team_data['gd']}" if team_data['gd'] > 0 else str(team_data['gd']),
-                    'points': str(team_data['points'])
-                })
+        # Si la ligue n'est pas dans les données, créer un classement par défaut
+        if league not in standings_data:
+            # Liste d'équipes par ligue
+            teams_by_league = {
+                "Bundesliga": ["Bayern Munich", "Borussia Dortmund", "RB Leipzig", "Bayer Leverkusen", 
+                               "Eintracht Frankfurt", "Wolfsburg", "Borussia Mönchengladbach", "Freiburg"],
+                "Serie A": ["Juventus", "AC Milan", "Inter Milan", "Napoli", "Roma", "Lazio", "Atalanta", "Fiorentina"],
+                "Champions League": ["Real Madrid", "Manchester City", "Bayern Munich", "Paris SG", 
+                                     "Liverpool", "Barcelona", "Chelsea", "AC Milan"]
+            }
             
-            return standings
-        else:
-            # Générer un classement par défaut
-            return self.generate_default_standings(league)
-    
-    def generate_default_standings(self, league):
-        """Génère un classement par défaut"""
-        teams = {
-            'Ligue 1': ['Paris SG', 'Marseille', 'Lyon', 'Lille', 'Monaco', 'Nice', 'Rennes', 'Lens'],
-            'Premier League': ['Manchester City', 'Liverpool', 'Arsenal', 'Chelsea', 'Tottenham', 'Man United', 'Newcastle', 'Aston Villa'],
-            'La Liga': ['Real Madrid', 'Barcelona', 'Atletico Madrid', 'Sevilla', 'Valencia', 'Real Betis', 'Villarreal', 'Athletic Bilbao'],
-            'Bundesliga': ['Bayern Munich', 'Borussia Dortmund', 'RB Leipzig', 'Bayer Leverkusen', 'Eintracht Frankfurt', 'Wolfsburg', 'Mönchengladbach', 'Freiburg'],
-            'Serie A': ['Juventus', 'AC Milan', 'Inter Milan', 'Napoli', 'Roma', 'Lazio', 'Atalanta', 'Fiorentina']
-        }
+            teams = teams_by_league.get(league, standings_data["Ligue 1"])
+            standings_data[league] = []
+            
+            for i, team in enumerate(teams[:8], 1):
+                points = 70 - (i * 3)
+                gd = 40 - (i * 5)
+                standings_data[league].append({"team": team, "points": points, "gd": gd})
         
-        league_teams = teams.get(league, teams['Ligue 1'])
+        # Construire le classement complet
         standings = []
-        
-        for i, team in enumerate(league_teams, 1):
-            matches = random.randint(25, 30)
-            wins = random.randint(15, 20)
-            draws = random.randint(5, 10)
+        for i, team_data in enumerate(standings_data.get(league, standings_data["Ligue 1"]), 1):
+            matches = 28  # Nombre de matches joués
+            wins = team_data["points"] // 3
+            draws = team_data["points"] - (wins * 3)
             losses = matches - wins - draws
-            goals_for = random.randint(40, 60)
-            goals_against = random.randint(20, 40)
-            goal_diff = goals_for - goals_against
-            points = wins * 3 + draws
+            
+            goals_for = 40 + team_data["gd"]  # Buts pour
+            goals_against = 40  # Buts contre
             
             standings.append({
-                'position': i,
-                'team': team,
-                'matches': str(matches),
-                'wins': str(wins),
-                'draws': str(draws),
-                'losses': str(losses),
-                'goals_for': str(goals_for),
-                'goals_against': str(goals_against),
-                'goal_diff': f"+{goal_diff}" if goal_diff > 0 else str(goal_diff),
-                'points': str(points)
+                "position": i,
+                "team": team_data["team"],
+                "matches": str(matches),
+                "wins": str(wins),
+                "draws": str(draws),
+                "losses": str(losses),
+                "goals_for": str(goals_for),
+                "goals_against": str(goals_against),
+                "goal_diff": f"+{team_data['gd']}" if team_data['gd'] > 0 else str(team_data['gd']),
+                "points": str(team_data["points"])
             })
         
         return standings
 
 # ============================================================================
-# APPLICATION STREAMLIT CORRIGÉE
+# FONCTIONS D'AFFICHAGE
 # ============================================================================
-
-def main():
-    st.set_page_config(
-        page_title="Football Analytics Pro",
-        page_icon="⚽",
-        layout="wide"
-    )
-    
-    st.markdown("""
-    <style>
-    .match-card {
-        background: white;
-        padding: 1rem;
-        border-radius: 10px;
-        margin: 0.5rem 0;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-    .live-badge {
-        background: #ff4757;
-        color: white;
-        padding: 0.2rem 0.5rem;
-        border-radius: 12px;
-        font-size: 0.8rem;
-        animation: pulse 1.5s infinite;
-    }
-    @keyframes pulse {
-        0% { opacity: 1; }
-        50% { opacity: 0.7; }
-        100% { opacity: 1; }
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    st.title("⚽ Football Analytics Pro")
-    st.markdown("**Données en temps réel • Sources fiables • Interface intuitive**")
-    
-    # Initialiser le scraper
-    if 'scraper' not in st.session_state:
-        st.session_state.scraper = WorkingFootballScraper()
-    
-    scraper = st.session_state.scraper
-    
-    # Sidebar
-    with st.sidebar:
-        st.header("⚙️ Configuration")
-        
-        source = st.selectbox(
-            "Source de données",
-            [
-                "demo_realistic", 
-                "worldfootball", 
-                "live_scores",
-                "api_fallback"
-            ],
-            format_func=lambda x: {
-                "demo_realistic": "🎮 Démo réaliste (recommandé)",
-                "worldfootball": "🌐 WorldFootball.net",
-                "live_scores": "📱 Live Scores",
-                "api_fallback": "🔧 API Football-Data"
-            }[x]
-        )
-        
-        league = st.selectbox(
-            "Ligue",
-            ["Ligue 1", "Premier League", "La Liga", "Bundesliga", "Serie A", "Champions League"]
-        )
-        
-        auto_refresh = st.checkbox("🔄 Rafraîchissement auto", value=True)
-        
-        if st.button("🚀 Charger les données", type="primary"):
-            st.rerun()
-    
-    # Contenu principal
-    tab1, tab2, tab3 = st.tabs(["📊 Matchs", "🏆 Classement", "📈 Statistiques"])
-    
-    with tab1:
-        st.header(f"⚽ Matchs - {league}")
-        
-        # Charger les données
-        with st.spinner("Chargement des données..."):
-            matches = scraper.scrape_matches(source)
-            
-            # Filtrer par ligue si nécessaire
-            if league != "Toutes":
-                matches = [m for m in matches if m['league'] == league]
-            
-            if not matches:
-                st.warning("Aucun match trouvé. Utilisation des données de démo.")
-                matches = scraper.get_realistic_demo_matches()
-        
-        # Afficher les métriques
-        col1, col2, col3, col4 = st.columns(4)
-        
-        live_matches = [m for m in matches if m['status'] == 'LIVE']
-        total_goals = sum(int(m['home_score']) + int(m['away_score']) for m in matches 
-                         if m['home_score'].isdigit() and m['away_score'].isdigit())
-        
-        with col1:
-            st.metric("Matchs en direct", len(live_matches))
-        with col2:
-            st.metric("Total matchs", len(matches))
-        with col3:
-            st.metric("Buts totaux", total_goals)
-        with col4:
-            source_name = matches[0]['source'] if matches else "demo"
-            st.metric("Source", source_name)
-        
-        # Afficher les matchs
-        for match in matches:
-            display_match(match)
-    
-    with tab2:
-        st.header(f"🏆 Classement - {league}")
-        
-        with st.spinner("Chargement du classement..."):
-            standings = scraper.get_standings(league)
-        
-        if standings:
-            df = pd.DataFrame(standings)
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    'position': st.column_config.NumberColumn("Pos", width="small"),
-                    'team': st.column_config.TextColumn("Équipe"),
-                    'points': st.column_config.ProgressColumn(
-                        "PTS",
-                        format="%d",
-                        min_value=0,
-                        max_value=100
-                    ),
-                    'goal_diff': st.column_config.TextColumn("+/-")
-                }
-            )
-            
-            # Graphique
-            fig = go.Figure(data=[
-                go.Bar(
-                    x=df['team'],
-                    y=df['points'].astype(int),
-                    marker_color=['#FFD700' if i == 1 else '#C0C0C0' if i == 2 else '#CD7F32' if i == 3 else '#3498db' for i in range(1, len(df)+1)]
-                )
-            ])
-            
-            fig.update_layout(
-                title=f"Classement {league} - Points",
-                xaxis_title="Équipes",
-                yaxis_title="Points",
-                template="plotly_white"
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-    
-    with tab3:
-        st.header("📈 Statistiques avancées")
-        
-        # Statistiques générées
-        if matches:
-            stats_data = {
-                'Statistique': [
-                    'Moyenne buts/match',
-                    'Matchs avec +2.5 buts',
-                    'Victoires à domicile',
-                    'Matchs nuls',
-                    'Clean sheets',
-                    'Buts en 2ème mi-temps'
-                ],
-                'Valeur': [
-                    f"{total_goals/len(matches):.2f}" if matches else "0",
-                    f"{len([m for m in matches if int(m['home_score']) + int(m['away_score']) > 2])/len(matches)*100:.1f}%",
-                    f"{len([m for m in matches if int(m['home_score']) > int(m['away_score'])])/len(matches)*100:.1f}%",
-                    f"{len([m for m in matches if m['home_score'] == m['away_score']])/len(matches)*100:.1f}%",
-                    f"{len([m for m in matches if m['away_score'] == '0'])/len(matches)*100:.1f}%",
-                    f"{random.randint(55, 75)}%"
-                ]
-            }
-            
-            df_stats = pd.DataFrame(stats_data)
-            st.dataframe(df_stats, use_container_width=True, hide_index=True)
-    
-    # Auto-refresh
-    if auto_refresh:
-        time.sleep(30)  # Rafraîchir toutes les 30 secondes
-        st.rerun()
-
 def display_match(match):
-    """Affiche un match de manière attrayante"""
+    """Affiche un match de manière élégante"""
     col1, col2, col3, col4, col5 = st.columns([1, 3, 1, 3, 2])
     
     with col1:
         if match['status'] == 'LIVE':
-            st.markdown(f"<div class='live-badge'>{match['elapsed']}'</div>", unsafe_allow_html=True)
+            st.markdown(f"<span class='live-badge'>{match['elapsed']}'</span>", unsafe_allow_html=True)
         elif match['status'] == 'HT':
-            st.markdown("**HT**", unsafe_allow_html=True)
+            st.markdown("**HT**")
         elif match['status'] == 'FT':
-            st.markdown("**FT**", unsafe_allow_html=True)
+            st.markdown("**FT**")
         else:
             st.markdown(f"**{match['match_time']}**")
     
@@ -668,10 +439,292 @@ def display_match(match):
         st.markdown(f"**{match['away_team']}**")
     
     with col5:
-        source_icon = "🌐" if match['source'] == 'worldfootball' else "📱" if match['source'] == 'livescore' else "🎮"
+        source_icon = "🌐" if match.get('source') == 'worldfootball' else "🔧" if match.get('source') == 'football-data.org' else "🎮"
         st.caption(f"{source_icon} {match['league']}")
     
     st.divider()
 
+def create_standings_chart(standings_df):
+    """Crée un graphique du classement"""
+    try:
+        fig = go.Figure(data=[
+            go.Bar(
+                x=standings_df['team'],
+                y=standings_df['points'].astype(int),
+                marker_color=['#FFD700' if i == 1 else '#C0C0C0' if i == 2 else '#CD7F32' if i == 3 else '#3498db' for i in range(1, len(standings_df)+1)],
+                text=standings_df['points'],
+                textposition='auto'
+            )
+        ])
+        
+        fig.update_layout(
+            title="Points au classement",
+            xaxis_title="Équipes",
+            yaxis_title="Points",
+            template="plotly_white",
+            showlegend=False,
+            height=400
+        )
+        
+        return fig
+    except Exception as e:
+        st.warning(f"Erreur lors de la création du graphique : {str(e)}")
+        return None
+
+def create_goals_chart(matches):
+    """Crée un graphique des buts"""
+    try:
+        # Calculer les buts par ligue
+        leagues = {}
+        for match in matches:
+            league = match['league']
+            if match['home_score'].isdigit() and match['away_score'].isdigit():
+                goals = int(match['home_score']) + int(match['away_score'])
+                if league not in leagues:
+                    leagues[league] = []
+                leagues[league].append(goals)
+        
+        # Préparer les données
+        league_names = list(leagues.keys())
+        avg_goals = [sum(goals)/len(goals) if goals else 0 for goals in leagues.values()]
+        
+        fig = go.Figure(data=[
+            go.Bar(
+                x=league_names,
+                y=avg_goals,
+                marker_color=['#667eea', '#764ba2', '#f093fb', '#f5576c', '#10b981'],
+                text=[f"{g:.2f}" for g in avg_goals],
+                textposition='auto'
+            )
+        ])
+        
+        fig.update_layout(
+            title="Moyenne de buts par match par ligue",
+            xaxis_title="Ligue",
+            yaxis_title="Buts par match",
+            template="plotly_white",
+            height=400
+        )
+        
+        return fig
+    except:
+        return None
+
+# ============================================================================
+# APPLICATION PRINCIPALE
+# ============================================================================
+def main():
+    load_css()
+    
+    # Header
+    st.markdown("""
+    <div class="main-header">
+        <h1 style="color: white; text-align: center; margin: 0;">⚽ FOOTBALL ANALYTICS PRO</h1>
+        <p style="color: white; text-align: center; margin: 10px 0 0 0; opacity: 0.9;">
+            Données en temps réel • Analyse complète • Interface intuitive
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Sidebar
+    with st.sidebar:
+        st.markdown("### ⚙️ Configuration")
+        
+        # Source de données
+        source = st.selectbox(
+            "Source des données",
+            ["demo", "worldfootball", "football_api"],
+            format_func=lambda x: {
+                "demo": "🎮 Mode Démo",
+                "worldfootball": "🌐 WorldFootball",
+                "football_api": "🔧 API Football"
+            }[x],
+            help="Mode Démo recommandé pour la stabilité"
+        )
+        
+        # Sélection de ligue
+        league = st.selectbox(
+            "Ligue",
+            ["Ligue 1", "Premier League", "La Liga", "Bundesliga", "Serie A", "Champions League"]
+        )
+        
+        # Options
+        auto_refresh = st.checkbox("🔄 Rafraîchissement automatique", value=False)
+        show_details = st.checkbox("📊 Afficher les détails", value=True)
+        
+        # Bouton de rafraîchissement
+        if st.button("🚀 Charger les données", type="primary", use_container_width=True):
+            st.session_state.last_update = datetime.now()
+            st.rerun()
+        
+        st.markdown("---")
+        st.markdown(f"""
+        ### 📊 Informations
+        - **Dernière mise à jour:** {st.session_state.last_update.strftime('%H:%M:%S')}
+        - **Mode:** {'Démo' if source == 'demo' else 'Web'}
+        - **Ligue:** {league}
+        """)
+    
+    # Initialiser le scraper
+    if st.session_state.scraper is None:
+        st.session_state.scraper = FootballScraper()
+    
+    scraper = st.session_state.scraper
+    
+    # Onglets principaux
+    tab1, tab2, tab3 = st.tabs(["📊 Matchs en Direct", "🏆 Classements", "📈 Statistiques"])
+    
+    with tab1:
+        st.header(f"⚽ Matchs - {league}")
+        
+        # Charger les données
+        with st.spinner("Chargement des matchs..."):
+            matches = scraper.get_matches(source, league)
+            
+            if not matches:
+                st.warning("Aucun match trouvé. Utilisation des données de démo.")
+                matches = scraper.get_demo_matches(league)
+        
+        # Calculer les métriques
+        live_matches = [m for m in matches if m['status'] == 'LIVE']
+        total_goals = 0
+        for match in matches:
+            if match['home_score'].isdigit() and match['away_score'].isdigit():
+                total_goals += int(match['home_score']) + int(match['away_score'])
+        
+        # Afficher les métriques
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Matchs en direct", len(live_matches))
+        with col2:
+            st.metric("Total matchs", len(matches))
+        with col3:
+            st.metric("Buts totaux", total_goals)
+        with col4:
+            avg_goals = total_goals / len(matches) if matches else 0
+            st.metric("Moyenne buts", f"{avg_goals:.1f}")
+        
+        # Afficher les matchs
+        st.markdown("### 📅 Résultats des Matchs")
+        
+        for match in matches:
+            display_match(match)
+        
+        # Graphique des buts si demandé
+        if show_details and matches:
+            goals_chart = create_goals_chart(matches)
+            if goals_chart:
+                st.plotly_chart(goals_chart, use_container_width=True)
+    
+    with tab2:
+        st.header(f"🏆 Classement - {league}")
+        
+        with st.spinner("Chargement du classement..."):
+            standings = scraper.get_standings(league)
+        
+        if standings:
+            # Convertir en DataFrame
+            df_standings = pd.DataFrame(standings)
+            
+            # Afficher le tableau
+            st.dataframe(
+                df_standings,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "position": st.column_config.NumberColumn("Pos", width="small"),
+                    "team": st.column_config.TextColumn("Équipe"),
+                    "matches": st.column_config.NumberColumn("MJ", width="small"),
+                    "wins": st.column_config.NumberColumn("G", width="small"),
+                    "draws": st.column_config.NumberColumn("N", width="small"),
+                    "losses": st.column_config.NumberColumn("P", width="small"),
+                    "goals_for": st.column_config.NumberColumn("BP", width="small"),
+                    "goals_against": st.column_config.NumberColumn("BC", width="small"),
+                    "goal_diff": st.column_config.TextColumn("+/-", width="small"),
+                    "points": st.column_config.ProgressColumn(
+                        "PTS",
+                        format="%d",
+                        min_value=0,
+                        max_value=100,
+                        width="medium"
+                    )
+                }
+            )
+            
+            # Graphique du classement
+            chart = create_standings_chart(df_standings)
+            if chart:
+                st.plotly_chart(chart, use_container_width=True)
+        else:
+            st.warning("Aucun classement disponible pour cette ligue.")
+    
+    with tab3:
+        st.header("📈 Statistiques Avancées")
+        
+        if 'matches' in locals() and matches:
+            # Calculer diverses statistiques
+            home_wins = len([m for m in matches if m['home_score'] > m['away_score']])
+            draws = len([m for m in matches if m['home_score'] == m['away_score']])
+            away_wins = len([m for m in matches if m['home_score'] < m['away_score']])
+            
+            high_scoring = len([m for m in matches if 
+                               m['home_score'].isdigit() and m['away_score'].isdigit() and
+                               int(m['home_score']) + int(m['away_score']) > 2.5])
+            
+            clean_sheets = len([m for m in matches if m['away_score'] == '0'])
+            
+            # Afficher les statistiques
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("### 📊 Distribution des résultats")
+                results_data = {
+                    "Résultat": ["Victoire domicile", "Match nul", "Victoire extérieur"],
+                    "Pourcentage": [
+                        f"{(home_wins/len(matches))*100:.1f}%" if matches else "0%",
+                        f"{(draws/len(matches))*100:.1f}%" if matches else "0%",
+                        f"{(away_wins/len(matches))*100:.1f}%" if matches else "0%"
+                    ]
+                }
+                st.dataframe(pd.DataFrame(results_data), use_container_width=True)
+            
+            with col2:
+                st.markdown("### 🎯 Autres statistiques")
+                stats_data = {
+                    "Statistique": ["Matchs > 2.5 buts", "Clean sheets", "Buts/match"],
+                    "Valeur": [
+                        f"{(high_scoring/len(matches))*100:.1f}%" if matches else "0%",
+                        f"{(clean_sheets/len(matches))*100:.1f}%" if matches else "0%",
+                        f"{total_goals/len(matches):.2f}" if matches else "0"
+                    ]
+                }
+                st.dataframe(pd.DataFrame(stats_data), use_container_width=True)
+            
+            # Graphique circulaire des résultats
+            if home_wins + draws + away_wins > 0:
+                fig_pie = go.Figure(data=[go.Pie(
+                    labels=['Victoire domicile', 'Match nul', 'Victoire extérieur'],
+                    values=[home_wins, draws, away_wins],
+                    hole=.3,
+                    marker_colors=['#667eea', '#764ba2', '#f093fb']
+                )])
+                
+                fig_pie.update_layout(
+                    title="Distribution des résultats",
+                    height=400
+                )
+                
+                st.plotly_chart(fig_pie, use_container_width=True)
+        else:
+            st.info("Chargez d'abord des matchs dans l'onglet 'Matchs en Direct'")
+    
+    # Rafraîchissement automatique
+    if auto_refresh:
+        time.sleep(30)  # Rafraîchir toutes les 30 secondes
+        st.session_state.last_update = datetime.now()
+        st.rerun()
+
+# Point d'entrée
 if __name__ == "__main__":
     main()
