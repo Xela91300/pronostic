@@ -1,37 +1,47 @@
-# ⚽ Football Betting Analytics
+# ⚽ Football Betting Analytics Live
 
-Application d'analyse de données footballistiques pour les paris sportifs, développée avec Streamlit.
+Application Streamlit d'analyse footballistique en temps réel avec données live et prédictions intelligentes.
 
 ## 🚀 Fonctionnalités
 
-### 📊 Dashboard
-- KPI et indicateurs de performance
-- Visualisations des tendances
-- Matchs du jour
+### 📊 Dashboard Live
+- Matchs en direct avec scores temps réel
+- KPI et métriques instantanées
+- Graphiques interactifs
+- Alertes automatiques
 
-### 🔮 Prédictions CIA
-- Analyse intelligente des matchs
-- Graphiques radar comparatifs
+### 🔮 Prédictions Intelligentes
+- Analyse prédictive basée sur les statistiques
+- Niveaux de confiance et risques
 - Recommandations personnalisées
+- Facteurs déterminants
 
-### 📈 Statistiques
-- Analyse des séries statistiques
+### 📈 Statistiques Avancées
+- Performances par équipe
+- Tendances et évolution
+- Comparaisons détaillées
 - Visualisations interactives
-- Filtres avancés
 
-### 🏆 Top 50
-- Classement des meilleures opportunités
-- Filtres par type de pari
-- Données historiques
+### ⚽ Matchs
+- Calendrier complet
+- Filtres par ligue et date
+- Statuts en temps réel
+- Analyses détaillées
 
-### 🔔 Alertes
-- Notifications en temps réel
-- Configuration personnalisée
-- Suivi des performances
+### 🏆 Classements
+- Tableaux de ligue
+- Évolution des points
+- Comparaison d'équipes
 
-## 🛠 Installation
+## 🔧 Installation
 
-1. **Cloner le repository :**
 ```bash
+# Cloner le repository
 git clone https://github.com/votre-username/football-betting-analytics.git
 cd football-betting-analytics
+
+# Installer les dépendances
+pip install -r requirements.txt
+
+# Lancer l'application
+streamlit run app.py
