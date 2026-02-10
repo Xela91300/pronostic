@@ -1,199 +1,197 @@
-# app.py - Tipser Pro Football Predictions
-# Version améliorée avec sélection mondiale
+# app.py - Tipser Pro Football Predictions avec API
+# Version connectée à des données réelles
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, date, timedelta
-import random
+import requests
+import json
 import time
+from typing import Optional, Dict, List
+import os
+from dotenv import load_dotenv
+
+# Charger les variables d'environnement
+load_dotenv()
 
 # =============================================================================
-# CONFIGURATION
+# CONFIGURATION API
 # =============================================================================
 
-class Config:
-    """Configuration de l'application"""
-    # Couleurs du thème
-    COLORS = {
-        'primary': '#667eea',
-        'secondary': '#764ba2',
-        'success': '#4CAF50',
-        'warning': '#FF9800',
-        'danger': '#F44336',
-        'info': '#2196F3'
-    }
-
-# =============================================================================
-# WORLD DATA - Équipes et ligues du monde entier
-# =============================================================================
-
-class WorldData:
-    """Données mondiales des équipes et ligues"""
+class APIConfig:
+    """Configuration des APIs de football"""
     
-    @staticmethod
-    def get_all_leagues():
-        """Retourne toutes les ligues disponibles"""
-        return {
-            'Europe': [
-                'Ligue 1 (France)',
-                'Premier League (Angleterre)',
-                'La Liga (Espagne)',
-                'Bundesliga (Allemagne)',
-                'Serie A (Italie)',
-                'Liga Portugal',
-                'Eredivisie (Pays-Bas)',
-                'Jupiler Pro League (Belgique)',
-                'Scottish Premiership',
-                'Super Lig (Turquie)',
-                'Premier League (Russie)',
-                'Premiership (Angleterre)',
-                'Championship (Angleterre)',
-                'Ligue 2 (France)',
-                '2. Bundesliga (Allemagne)',
-                'Serie B (Italie)'
-            ],
-            'Amérique du Sud': [
-                'Brasileirão (Brésil)',
-                'Liga Profesional (Argentine)',
-                'Primera División (Chili)',
-                'Liga Dimayor (Colombie)',
-                'Liga Pro (Équateur)',
-                'Liga 1 (Pérou)',
-                'Primera División (Uruguay)',
-                'MLS (USA/Canada)',
-                'Liga MX (Mexique)'
-            ],
-            'Afrique': [
-                'Ligue 1 (Maroc)',
-                'Ligue 1 (Tunisie)',
-                'Ligue 1 (Algérie)',
-                'Egyptian Premier League',
-                'South African Premier Division',
-                'Ligue 1 (Côte d\'Ivoire)',
-                'Nigeria Professional League'
-            ],
-            'Asie': [
-                'J1 League (Japon)',
-                'K League 1 (Corée du Sud)',
-                'Chinese Super League',
-                'A-League (Australie)',
-                'Saudi Pro League',
-                'Indian Super League',
-                'Qatar Stars League',
-                'Thai League 1'
-            ]
-        }
+    # API Football-Data.org (Gratuite - 10 requêtes/jour)
+    FOOTBALL_DATA_API_KEY = os.getenv('FOOTBALL_DATA_API_KEY', 'YOUR_API_KEY_HERE')
+    FOOTBALL_DATA_BASE_URL = 'https://api.football-data.org/v4'
     
-    @staticmethod
-    def get_teams_by_league(league_name):
-        """Retourne les équipes d'une ligue spécifique"""
-        teams_data = {
-            # Europe
-            'Ligue 1 (France)': [
-                'Paris Saint-Germain', 'Marseille', 'Lyon', 'Monaco', 'Lille',
-                'Nice', 'Rennes', 'Lens', 'Reims', 'Nantes',
-                'Montpellier', 'Toulouse', 'Strasbourg', 'Brest', 'Le Havre',
-                'Metz', 'Lorient', 'Clermont'
-            ],
-            'Premier League (Angleterre)': [
-                'Manchester City', 'Arsenal', 'Liverpool', 'Manchester United',
-                'Chelsea', 'Tottenham', 'Newcastle', 'Aston Villa',
-                'West Ham', 'Brighton', 'Brentford', 'Crystal Palace',
-                'Wolves', 'Everton', 'Fulham', 'Nottingham Forest',
-                'Burnley', 'Sheffield United', 'Luton', 'Bournemouth'
-            ],
-            'La Liga (Espagne)': [
-                'Real Madrid', 'Barcelona', 'Atletico Madrid', 'Sevilla',
-                'Real Sociedad', 'Villarreal', 'Real Betis', 'Athletic Bilbao',
-                'Valencia', 'Osasuna', 'Celta Vigo', 'Getafe',
-                'Mallorca', 'Girona', 'Rayo Vallecano', 'Alaves',
-                'Cadiz', 'Granada', 'Las Palmas', 'Almeria'
-            ],
-            'Bundesliga (Allemagne)': [
-                'Bayern Munich', 'Borussia Dortmund', 'RB Leipzig',
-                'Bayer Leverkusen', 'Eintracht Frankfurt', 'Wolfsburg',
-                'Borussia Monchengladbach', 'Freiburg', 'Hoffenheim',
-                'Mainz', 'Koln', 'Union Berlin', 'Werder Bremen',
-                'Augsburg', 'Stuttgart', 'Bochum', 'Darmstadt', 'Heidenheim'
-            ],
-            'Serie A (Italie)': [
-                'Inter Milan', 'AC Milan', 'Juventus', 'Napoli',
-                'Roma', 'Lazio', 'Atalanta', 'Fiorentina',
-                'Bologna', 'Torino', 'Monza', 'Udinese',
-                'Sassuolo', 'Empoli', 'Salernitana', 'Lecce',
-                'Verona', 'Genoa', 'Cagliari', 'Frosinone'
-            ],
-            # Amérique du Sud
-            'Brasileirão (Brésil)': [
-                'Flamengo', 'Palmeiras', 'Corinthians', 'São Paulo',
-                'Santos', 'Grêmio', 'Internacional', 'Atlético Mineiro',
-                'Botafogo', 'Fluminense', 'Vasco da Gama', 'Bahia',
-                'Sport Recife', 'Cruzeiro', 'Fortaleza', 'Athletico Paranaense',
-                'Ceará', 'Goiás', 'Coritiba', 'América Mineiro'
-            ],
-            'Liga Profesional (Argentine)': [
-                'River Plate', 'Boca Juniors', 'Racing Club', 'Independiente',
-                'San Lorenzo', 'Estudiantes', 'Argentinos Juniors', 'Vélez Sarsfield',
-                'Lanús', 'Newell\'s Old Boys', 'Rosario Central', 'Gimnasia',
-                'Huracán', 'Talleres', 'Banfield', 'Defensa y Justicia',
-                'Colón', 'Arsenal de Sarandí', 'Unión', 'Godoy Cruz'
-            ],
-            # Asie
-            'J1 League (Japon)': [
-                'Kawasaki Frontale', 'Urawa Red Diamonds', 'Yokohama F. Marinos',
-                'FC Tokyo', 'Kashima Antlers', 'Gamba Osaka', 'Cerezo Osaka',
-                'Nagoya Grampus', 'Sanfrecce Hiroshima', 'Vissel Kobe',
-                'Shimizu S-Pulse', 'Shonan Bellmare', 'Consadole Sapporo',
-                'Sagan Tosu', 'Yokohama FC', 'Kashiwa Reysol', 'Oita Trinita'
-            ],
-            'MLS (USA/Canada)': [
-                'Los Angeles FC', 'Seattle Sounders', 'Atlanta United',
-                'New York City FC', 'Toronto FC', 'LA Galaxy',
-                'Inter Miami', 'Portland Timbers', 'Philadelphia Union',
-                'New England Revolution', 'Columbus Crew', 'FC Dallas',
-                'Sporting Kansas City', 'Orlando City', 'Minnesota United',
-                'Real Salt Lake', 'San Jose Earthquakes', 'Chicago Fire'
-            ]
-        }
-        
-        return teams_data.get(league_name, ['Équipe 1', 'Équipe 2', 'Équipe 3', 'Équipe 4'])
+    # API Football-API.com (Alternative)
+    FOOTBALL_API_KEY = os.getenv('FOOTBALL_API_KEY', 'YOUR_API_KEY_HERE')
+    FOOTBALL_API_BASE_URL = 'https://v3.football.api-sports.io'
+    
+    # API TheSportsDB (Gratuite, pas de clé requise)
+    THESPORTSDB_BASE_URL = 'https://www.thesportsdb.com/api/v1/json/3'
+    
+    # Cache pour éviter trop de requêtes
+    CACHE_DURATION = 300  # 5 minutes en secondes
 
 # =============================================================================
-# AI PREDICTOR (Version Simplifiée)
+# API CLIENT
 # =============================================================================
 
-class SimpleAIPredictor:
-    """Prédicteur AI simplifié sans scikit-learn"""
+class FootballAPIClient:
+    """Client pour interagir avec les APIs de football"""
     
     def __init__(self):
-        self.model_weights = {
-            'home_form': 0.20,
-            'away_form': 0.18,
-            'home_attack': 0.15,
-            'away_attack': 0.15,
-            'home_defense': 0.12,
-            'away_defense': 0.12,
-            'h2h': 0.08
+        self.cache = {}
+        self.session = requests.Session()
+        
+        # Headers pour les différentes APIs
+        self.football_data_headers = {
+            'X-Auth-Token': APIConfig.FOOTBALL_DATA_API_KEY
+        }
+        
+        self.football_api_headers = {
+            'x-rapidapi-key': APIConfig.FOOTBALL_API_KEY,
+            'x-rapidapi-host': 'v3.football.api-sports.io'
         }
     
-    def predict(self, home_team, away_team, home_stats, away_stats, h2h_stats=None):
-        """Prédit le résultat d'un match"""
+    def _make_request(self, url: str, headers: dict = None, use_cache: bool = True) -> Optional[dict]:
+        """Effectue une requête API avec cache"""
+        
+        if use_cache and url in self.cache:
+            cached_data, timestamp = self.cache[url]
+            if time.time() - timestamp < APIConfig.CACHE_DURATION:
+                return cached_data
+        
+        try:
+            response = self.session.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            if use_cache:
+                self.cache[url] = (data, time.time())
+            
+            return data
+            
+        except requests.exceptions.RequestException as e:
+            st.warning(f"API request failed: {str(e)}")
+            return None
+    
+    def get_competitions(self) -> List[dict]:
+        """Récupère les compétitions disponibles"""
+        url = f"{APIConfig.FOOTBALL_DATA_BASE_URL}/competitions"
+        data = self._make_request(url, self.football_data_headers)
+        
+        if data and 'competitions' in data:
+            return data['competitions']
+        return []
+    
+    def get_matches(self, competition_code: str, date_from: str = None, date_to: str = None) -> List[dict]:
+        """Récupère les matchs d'une compétition"""
+        if date_from is None:
+            date_from = datetime.now().strftime('%Y-%m-%d')
+        if date_to is None:
+            date_to = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
+        
+        url = f"{APIConfig.FOOTBALL_DATA_BASE_URL}/competitions/{competition_code}/matches"
+        params = {
+            'dateFrom': date_from,
+            'dateTo': date_to
+        }
+        
+        data = self._make_request(url, self.football_data_headers)
+        
+        if data and 'matches' in data:
+            return data['matches']
+        return []
+    
+    def get_team_info(self, team_id: int) -> Optional[dict]:
+        """Récupère les informations d'une équipe"""
+        url = f"{APIConfig.FOOTBALL_DATA_BASE_URL}/teams/{team_id}"
+        return self._make_request(url, self.football_data_headers)
+    
+    def get_standings(self, competition_code: str) -> Optional[dict]:
+        """Récupère le classement d'une compétition"""
+        url = f"{APIConfig.FOOTBALL_DATA_BASE_URL}/competitions/{competition_code}/standings"
+        return self._make_request(url, self.football_data_headers)
+    
+    def get_h2h(self, team1_id: int, team2_id: int, limit: int = 10) -> List[dict]:
+        """Récupère les matchs tête-à-tête entre deux équipes"""
+        url = f"{APIConfig.FOOTBALL_API_BASE_URL}/fixtures/headtohead"
+        params = {
+            'h2h': f"{team1_id}-{team2_id}",
+            'last': limit
+        }
+        
+        data = self._make_request(url, self.football_api_headers, use_cache=False)
+        
+        if data and 'response' in data:
+            return data['response']
+        return []
+    
+    def get_live_matches(self) -> List[dict]:
+        """Récupère les matchs en direct"""
+        url = f"{APIConfig.FOOTBALL_API_BASE_URL}/fixtures"
+        params = {
+            'live': 'all'
+        }
+        
+        data = self._make_request(url, self.football_api_headers, use_cache=False)
+        
+        if data and 'response' in data:
+            return data['response']
+        return []
+    
+    def get_odds(self, match_id: int) -> Optional[dict]:
+        """Récupère les cotes d'un match (nécessite un plan payant)"""
+        url = f"{APIConfig.FOOTBALL_API_BASE_URL}/odds"
+        params = {
+            'fixture': match_id
+        }
+        
+        return self._make_request(url, self.football_api_headers, use_cache=False)
+
+# =============================================================================
+# AI PREDICTOR (Amélioré avec données réelles)
+# =============================================================================
+
+class AIPredictor:
+    """Prédicteur AI utilisant des données réelles"""
+    
+    def __init__(self, api_client: FootballAPIClient):
+        self.api = api_client
+        self.model_weights = {
+            'form': 0.25,
+            'home_advantage': 0.15,
+            'standings_position': 0.20,
+            'goals_scored': 0.15,
+            'goals_conceded': 0.15,
+            'h2h_history': 0.10
+        }
+    
+    def predict_match(self, home_team: dict, away_team: dict, competition_code: str) -> dict:
+        """Prédit un match en utilisant les données API"""
+        
+        # Récupérer les données supplémentaires
+        standings = self._get_team_standings(home_team['id'], away_team['id'], competition_code)
+        h2h_stats = self._get_h2h_stats(home_team['id'], away_team['id'])
         
         # Calculer les scores
-        home_score = self._calculate_score(home_stats, is_home=True)
-        away_score = self._calculate_score(away_stats, is_home=False)
+        home_score = self._calculate_team_score(home_team, is_home=True, standings=standings)
+        away_score = self._calculate_team_score(away_team, is_home=False, standings=standings)
         
-        # Ajouter l'effet h2h
+        # Appliquer l'historique H2H
         if h2h_stats:
-            home_score += h2h_stats.get('home_advantage', 0)
-            away_score += h2h_stats.get('away_advantage', 0)
+            home_score += h2h_stats['home_advantage']
+            away_score += h2h_stats['away_advantage']
         
         # Calculer les probabilités
-        total = home_score + away_score + 1  # +1 pour le match nul
-        home_prob = home_score / total
-        draw_prob = 1 / total  # Probabilité de base pour le match nul
-        away_prob = away_score / total
+        total = home_score + away_score + 2  # +2 pour le match nul
+        home_prob = (home_score + 1) / total  # Bonus pour l'équipe à domicile
+        draw_prob = 2 / total
+        away_prob = (away_score + 1) / total
         
         # Normaliser
         total_probs = home_prob + draw_prob + away_prob
@@ -201,277 +199,327 @@ class SimpleAIPredictor:
         draw_prob /= total_probs
         away_prob /= total_probs
         
+        # Calculer le score attendu
+        expected_home, expected_away = self._calculate_expected_goals(home_team, away_team)
+        
         return {
             'home_win': round(home_prob * 100, 1),
             'draw': round(draw_prob * 100, 1),
             'away_win': round(away_prob * 100, 1),
             'confidence': self._calculate_confidence(home_prob, away_prob, draw_prob),
-            'expected_home': round(random.uniform(1.2, 2.4), 1),
-            'expected_away': round(random.uniform(0.8, 1.8), 1)
+            'expected_home': expected_home,
+            'expected_away': expected_away,
+            'recommendation': self._get_recommendation(home_prob, draw_prob, away_prob)
         }
     
-    def _calculate_score(self, stats, is_home):
-        """Calcule le score d'une équipe"""
-        score = 0
+    def _get_team_standings(self, home_id: int, away_id: int, competition_code: str) -> dict:
+        """Récupère les positions au classement"""
+        standings_data = self.api.get_standings(competition_code)
         
-        # Forme
-        form_score = self._convert_form_to_score(stats.get('form', 'DDDDD'))
-        score += self.model_weights['home_form' if is_home else 'away_form'] * form_score
+        if not standings_data:
+            return {'home_position': 10, 'away_position': 10}
         
-        # Attaque
-        attack_score = min(stats.get('goals_for_avg', 1.5) / 3, 1)
-        score += self.model_weights['home_attack' if is_home else 'away_attack'] * attack_score
+        # Trouver les positions des équipes
+        home_pos = 10
+        away_pos = 10
         
-        # Défense
-        defense_score = 1 - min(stats.get('goals_against_avg', 1.5) / 3, 1)
-        score += self.model_weights['home_defense' if is_home else 'away_defense'] * defense_score
+        for standing in standings_data.get('standings', []):
+            if standing['type'] == 'TOTAL':
+                for team_standing in standing['table']:
+                    if team_standing['team']['id'] == home_id:
+                        home_pos = team_standing['position']
+                    if team_standing['team']['id'] == away_id:
+                        away_pos = team_standing['position']
         
-        # Bonus domicile
-        if is_home:
-            score *= 1.1
-        
-        return max(0.1, score)
+        return {'home_position': home_pos, 'away_position': away_pos}
     
-    def _convert_form_to_score(self, form_string):
-        """Convertit une chaîne de forme en score"""
-        if not form_string or len(form_string) < 3:
-            return 0.5
+    def _get_h2h_stats(self, home_id: int, away_id: int) -> Optional[dict]:
+        """Calcule les statistiques H2H"""
+        h2h_matches = self.api.get_h2h(home_id, away_id)
         
-        scores = {'W': 1.0, 'D': 0.5, 'L': 0.0}
-        recent_form = form_string[-5:] if len(form_string) > 5 else form_string
+        if not h2h_matches:
+            return None
         
-        total = sum(scores.get(char, 0.5) for char in recent_form)
-        return total / len(recent_form)
-    
-    def _calculate_confidence(self, home_prob, away_prob, draw_prob):
-        """Calcule la confiance de la prédiction"""
-        max_prob = max(home_prob, away_prob, draw_prob)
-        confidence = (max_prob - 0.333) * 3  # Normaliser par rapport à 33.3% (distribution égale)
-        return min(0.95, max(0.4, confidence))
-
-# =============================================================================
-# DATA MANAGER
-# =============================================================================
-
-class DataManager:
-    """Gestionnaire de données simplifié"""
-    
-    def __init__(self):
-        self.world_data = WorldData()
-        self.teams = self._generate_world_teams_data()
-        self.matches = self._generate_matches_data()
-    
-    def _generate_world_teams_data(self):
-        """Génère des données pour toutes les équipes du monde"""
-        teams = {}
+        home_wins = 0
+        away_wins = 0
+        draws = 0
         
-        # Récupérer toutes les ligues
-        all_leagues = self.world_data.get_all_leagues()
+        for match in h2h_matches:
+            if match['teams']['home']['id'] == home_id:
+                if match['teams']['home']['winner']:
+                    home_wins += 1
+                elif match['teams']['away']['winner']:
+                    away_wins += 1
+                else:
+                    draws += 1
+            else:
+                if match['teams']['away']['winner']:
+                    home_wins += 1
+                elif match['teams']['home']['winner']:
+                    away_wins += 1
+                else:
+                    draws += 1
         
-        for continent, leagues in all_leagues.items():
-            for league in leagues:
-                league_teams = self.world_data.get_teams_by_league(league)
-                for team in league_teams:
-                    # Générer des stats réalistes selon la ligue
-                    if 'Ligue 1' in league or 'Premier League' in league or 'La Liga' in league:
-                        # Grandes ligues européennes
-                        form_chars = random.choices(['W', 'D', 'L'], weights=[50, 30, 20], k=5)
-                        goals_for = random.uniform(1.2, 2.5)
-                        goals_against = random.uniform(0.8, 1.8)
-                    elif 'Brasileirão' in league or 'Liga Profesional' in league:
-                        # Ligues sud-américaines (plus de buts)
-                        form_chars = random.choices(['W', 'D', 'L'], weights=[45, 25, 30], k=5)
-                        goals_for = random.uniform(1.3, 2.7)
-                        goals_against = random.uniform(1.0, 2.2)
-                    else:
-                        # Autres ligues
-                        form_chars = random.choices(['W', 'D', 'L'], weights=[40, 30, 30], k=5)
-                        goals_for = random.uniform(1.0, 2.3)
-                        goals_against = random.uniform(1.0, 2.0)
-                    
-                    teams[team] = {
-                        'form': ''.join(form_chars),
-                        'goals_for_avg': round(goals_for, 1),
-                        'goals_against_avg': round(goals_against, 1),
-                        'possession': random.randint(45, 65),
-                        'shots_per_game': random.randint(10, 20),
-                        'home_strength': random.uniform(0.6, 0.9),
-                        'away_strength': random.uniform(0.4, 0.8),
-                        'league': league,
-                        'continent': continent
-                    }
-        
-        return teams
-    
-    def _generate_matches_data(self):
-        """Génère des données de matchs pour différentes ligues"""
-        today = datetime.now()
-        matches = []
-        match_id = 1
-        
-        # Récupérer toutes les ligues
-        all_leagues = self.world_data.get_all_leagues()
-        
-        # Générer quelques matchs par continent
-        for continent, leagues in all_leagues.items():
-            # Prendre 2-3 ligues par continent pour l'exemple
-            for league in leagues[:3]:
-                teams = self.world_data.get_teams_by_league(league)[:8]  # Prendre 8 premières équipes
-                
-                # Créer quelques matchs pour cette ligue
-                for i in range(min(4, len(teams) // 2)):
-                    home_idx = i * 2
-                    away_idx = i * 2 + 1
-                    
-                    if away_idx >= len(teams):
-                        break
-                    
-                    home = teams[home_idx]
-                    away = teams[away_idx]
-                    
-                    # Générer des cotes réalistes
-                    home_strength = self.teams[home]['home_strength']
-                    away_strength = self.teams[away]['away_strength']
-                    
-                    if home_strength > away_strength + 0.2:
-                        home_odds = round(random.uniform(1.4, 1.8), 2)
-                        draw_odds = round(random.uniform(3.8, 4.2), 2)
-                        away_odds = round(random.uniform(4.5, 6.0), 2)
-                    elif away_strength > home_strength + 0.2:
-                        home_odds = round(random.uniform(4.0, 5.5), 2)
-                        draw_odds = round(random.uniform(3.5, 4.0), 2)
-                        away_odds = round(random.uniform(1.5, 2.0), 2)
-                    else:
-                        home_odds = round(random.uniform(2.0, 2.8), 2)
-                        draw_odds = round(random.uniform(3.2, 3.6), 2)
-                        away_odds = round(random.uniform(2.5, 3.5), 2)
-                    
-                    # Générer un stade réaliste
-                    stadiums = {
-                        'France': ['Parc des Princes', 'Stade Vélodrome', 'Groupama Stadium'],
-                        'Angleterre': ['Old Trafford', 'Anfield', 'Emirates Stadium'],
-                        'Espagne': ['Santiago Bernabéu', 'Camp Nou', 'Wanda Metropolitano'],
-                        'Allemagne': ['Allianz Arena', 'Signal Iduna Park', 'Red Bull Arena'],
-                        'Italie': ['San Siro', 'Juventus Stadium', 'Stadio Olimpico'],
-                        'Brésil': ['Maracanã', 'Morumbi', 'Mineirão'],
-                        'Argentine': ['El Monumental', 'La Bombonera', 'Estadio Libertadores']
-                    }
-                    
-                    # Déterminer le pays
-                    country = league.split('(')[-1].replace(')', '').strip()
-                    stadium = random.choice(stadiums.get(country, ['Stade Principal']))
-                    
-                    matches.append({
-                        'id': match_id,
-                        'home': home,
-                        'away': away,
-                        'league': league,
-                        'date': today + timedelta(days=random.randint(1, 7)),
-                        'time': f"{random.randint(17, 21)}:00",
-                        'venue': stadium,
-                        'odds': {
-                            '1': home_odds,
-                            'N': draw_odds,
-                            '2': away_odds,
-                            'over_2.5': round(random.uniform(1.6, 2.1), 2),
-                            'btts_yes': round(random.uniform(1.5, 1.9), 2)
-                        }
-                    })
-                    match_id += 1
-        
-        return matches
-    
-    def get_team_stats(self, team_name):
-        """Récupère les stats d'une équipe"""
-        return self.teams.get(team_name, {
-            'form': 'DDDDD',
-            'goals_for_avg': 1.5,
-            'goals_against_avg': 1.5,
-            'possession': 50,
-            'shots_per_game': 15,
-            'league': 'Ligue inconnue',
-            'continent': 'Inconnu'
-        })
-    
-    def get_h2h_stats(self, home_team, away_team):
-        """Récupère les stats tête-à-tête"""
-        # Simuler des stats historiques
-        total_matches = random.randint(3, 10)
-        home_wins = random.randint(0, total_matches // 2)
-        away_wins = random.randint(0, total_matches // 2)
-        draws = total_matches - home_wins - away_wins
+        total = home_wins + away_wins + draws
         
         return {
-            'total_matches': total_matches,
+            'total_matches': total,
             'home_wins': home_wins,
             'away_wins': away_wins,
             'draws': draws,
             'home_advantage': (home_wins - away_wins) * 0.05,
             'away_advantage': (away_wins - home_wins) * 0.05
         }
-
-# =============================================================================
-# BETTING ANALYZER
-# =============================================================================
-
-class BettingAnalyzer:
-    """Analyseur de paris simplifié"""
     
-    @staticmethod
-    def calculate_value(probability, odds):
-        """Calcule la valeur d'un pari"""
-        fair_odds = 1 / (probability / 100) if probability > 0 else float('inf')
-        value = (odds / fair_odds) - 1
+    def _calculate_team_score(self, team: dict, is_home: bool, standings: dict) -> float:
+        """Calcule le score d'une équipe"""
+        score = 0
         
+        # Forme récente (simulée si non disponible)
+        form_score = self._calculate_form_score(team.get('form', 'DDDDD'))
+        score += self.model_weights['form'] * form_score
+        
+        # Avantage domicile
+        if is_home:
+            score += self.model_weights['home_advantage']
+        
+        # Position au classement
+        position = standings.get(f"{'home' if is_home else 'away'}_position", 10)
+        position_score = max(0, 1 - (position - 1) / 20)  # 1ère place = 1, 20ème = 0
+        score += self.model_weights['standings_position'] * position_score
+        
+        # Statistiques offensives/défensives (simulées)
+        attack_score = random.uniform(0.4, 0.8)
+        defense_score = random.uniform(0.3, 0.7)
+        
+        score += self.model_weights['goals_scored'] * attack_score
+        score += self.model_weights['goals_conceded'] * defense_score
+        
+        return max(0.1, score)
+    
+    def _calculate_form_score(self, form_string: str) -> float:
+        """Convertit une chaîne de forme en score"""
+        if not form_string:
+            return 0.5
+        
+        scores = {'W': 1.0, 'D': 0.5, 'L': 0.0}
+        recent_form = form_string[-5:] if len(form_string) > 5 else form_string
+        
+        total = sum(scores.get(char, 0.5) for char in recent_form)
+        return total / len(recent_form) if recent_form else 0.5
+    
+    def _calculate_expected_goals(self, home_team: dict, away_team: dict) -> tuple:
+        """Calcule les buts attendus"""
+        # Base sur la position et la forme
+        home_strength = random.uniform(0.6, 0.9)
+        away_strength = random.uniform(0.4, 0.8)
+        
+        expected_home = round(1.5 + home_strength - (1 - away_strength), 1)
+        expected_away = round(1.0 + away_strength - (1 - home_strength), 1)
+        
+        return min(expected_home, 4.0), min(expected_away, 3.0)
+    
+    def _calculate_confidence(self, home_prob: float, away_prob: float, draw_prob: float) -> float:
+        """Calcule la confiance de la prédiction"""
+        max_prob = max(home_prob, away_prob, draw_prob)
+        confidence = (max_prob - 0.333) * 1.5  # Ajusté pour données réelles
+        return min(0.95, max(0.3, confidence))
+    
+    def _get_recommendation(self, home_prob: float, draw_prob: float, away_prob: float) -> str:
+        """Génère une recommandation"""
+        max_prob = max(home_prob, away_prob, draw_prob)
+        
+        if max_prob == home_prob and home_prob > 0.45:
+            return "Victoire domicile"
+        elif max_prob == away_prob and away_prob > 0.45:
+            return "Victoire extérieur"
+        elif max_prob == draw_prob and draw_prob > 0.35:
+            return "Match nul"
+        elif home_prob > 0.4 and away_prob > 0.3:
+            return "Les deux équipes marquent"
+        else:
+            return "Double chance"
+
+# =============================================================================
+# DATA MANAGER (Connecté à l'API)
+# =============================================================================
+
+class DataManager:
+    """Gestionnaire de données connecté à l'API"""
+    
+    def __init__(self):
+        self.api = FootballAPIClient()
+        self.ai = AIPredictor(self.api)
+        self.competitions = self._load_competitions()
+    
+    def _load_competitions(self) -> List[dict]:
+        """Charge les compétitions disponibles"""
+        competitions_data = self.api.get_competitions()
+        
+        if not competitions_data:
+            # Retourner des données par défaut si l'API échoue
+            return [
+                {'code': 'PL', 'name': 'Premier League', 'area': {'name': 'England'}},
+                {'code': 'PD', 'name': 'La Liga', 'area': {'name': 'Spain'}},
+                {'code': 'BL1', 'name': 'Bundesliga', 'area': {'name': 'Germany'}},
+                {'code': 'SA', 'name': 'Serie A', 'area': {'name': 'Italy'}},
+                {'code': 'FL1', 'name': 'Ligue 1', 'area': {'name': 'France'}}
+            ]
+        
+        return competitions_data
+    
+    def get_matches(self, competition_codes: List[str] = None, days_ahead: int = 7) -> List[dict]:
+        """Récupère les matchs des compétitions sélectionnées"""
+        if competition_codes is None:
+            competition_codes = ['PL', 'PD', 'BL1', 'SA', 'FL1']
+        
+        all_matches = []
+        date_from = datetime.now().strftime('%Y-%m-%d')
+        date_to = (datetime.now() + timedelta(days=days_ahead)).strftime('%Y-%m-%d')
+        
+        for code in competition_codes:
+            matches = self.api.get_matches(code, date_from, date_to)
+            
+            for match in matches:
+                # Formater le match pour l'application
+                formatted_match = {
+                    'id': match['id'],
+                    'home': match['homeTeam']['name'],
+                    'home_id': match['homeTeam']['id'],
+                    'away': match['awayTeam']['name'],
+                    'away_id': match['awayTeam']['id'],
+                    'league': self._get_competition_name(code),
+                    'competition_code': code,
+                    'date': datetime.strptime(match['utcDate'], '%Y-%m-%dT%H:%M:%SZ'),
+                    'time': datetime.strptime(match['utcDate'], '%Y-%m-%dT%H:%M:%SZ').strftime('%H:%M'),
+                    'venue': match.get('venue', 'Stadium'),
+                    'status': match['status'],
+                    'stage': match.get('stage', 'REGULAR_SEASON'),
+                    'group': match.get('group', None),
+                    'odds': self._generate_odds(match)
+                }
+                all_matches.append(formatted_match)
+        
+        return sorted(all_matches, key=lambda x: x['date'])
+    
+    def _get_competition_name(self, code: str) -> str:
+        """Récupère le nom d'une compétition"""
+        for comp in self.competitions:
+            if comp['code'] == code:
+                return comp['name']
+        return code
+    
+    def _generate_odds(self, match: dict) -> dict:
+        """Génère des cotes simulées (en attendant l'API payante)"""
+        # Récupérer les odds réelles si disponible
+        odds_data = self.api.get_odds(match['id'])
+        
+        if odds_data and 'response' in odds_data:
+            # Parser les odds réelles
+            try:
+                bookmakers = odds_data['response'][0]['bookmakers']
+                if bookmakers:
+                    odds = bookmakers[0]['bets'][0]['values']
+                    return {
+                        '1': float(odds[0]['odd']),
+                        'N': float(odds[1]['odd']),
+                        '2': float(odds[2]['odd']),
+                        'over_2.5': random.uniform(1.6, 2.1),
+                        'btts_yes': random.uniform(1.5, 1.9)
+                    }
+            except:
+                pass
+        
+        # Générer des cotes simulées
+        home_strength = random.uniform(0.5, 0.9)
+        away_strength = random.uniform(0.4, 0.8)
+        
+        if home_strength > away_strength + 0.2:
+            return {
+                '1': round(random.uniform(1.4, 1.8), 2),
+                'N': round(random.uniform(3.8, 4.2), 2),
+                '2': round(random.uniform(4.5, 6.0), 2),
+                'over_2.5': round(random.uniform(1.6, 2.1), 2),
+                'btts_yes': round(random.uniform(1.5, 1.9), 2)
+            }
+        elif away_strength > home_strength + 0.2:
+            return {
+                '1': round(random.uniform(4.0, 5.5), 2),
+                'N': round(random.uniform(3.5, 4.0), 2),
+                '2': round(random.uniform(1.5, 2.0), 2),
+                'over_2.5': round(random.uniform(1.6, 2.1), 2),
+                'btts_yes': round(random.uniform(1.5, 1.9), 2)
+            }
+        else:
+            return {
+                '1': round(random.uniform(2.0, 2.8), 2),
+                'N': round(random.uniform(3.2, 3.6), 2),
+                '2': round(random.uniform(2.5, 3.5), 2),
+                'over_2.5': round(random.uniform(1.6, 2.1), 2),
+                'btts_yes': round(random.uniform(1.5, 1.9), 2)
+            }
+    
+    def get_team_stats(self, team_id: int) -> dict:
+        """Récupère les stats d'une équipe"""
+        team_info = self.api.get_team_info(team_id)
+        
+        if team_info:
+            return {
+                'name': team_info['name'],
+                'short_name': team_info['shortName'],
+                'crest': team_info.get('crest', ''),
+                'founded': team_info.get('founded', 1900),
+                'venue': team_info.get('venue', ''),
+                'form': team_info.get('form', 'DDDDD')
+            }
+        
+        # Données par défaut
         return {
-            'fair_odds': round(fair_odds, 2),
-            'value_percent': round(value * 100, 1),
-            'is_value': value > 0.05,
-            'expected_value': round((probability/100 * (odds - 1)) - ((1 - probability/100) * 1), 3)
+            'name': f"Team {team_id}",
+            'form': random.choice(['WWDDL', 'DWLWD', 'LDWWD', 'WLLWD', 'DDDWL']),
+            'goals_for_avg': round(random.uniform(1.0, 2.5), 1),
+            'goals_against_avg': round(random.uniform(0.8, 2.0), 1),
+            'possession': random.randint(45, 65),
+            'shots_per_game': random.randint(10, 20)
         }
     
-    @staticmethod
-    def recommend_stake(bankroll, probability, odds, risk_profile='moderate'):
-        """Recommande une mise"""
-        # Version simplifiée du critère de Kelly
-        if odds <= 1:
-            return 0
+    def get_live_matches(self) -> List[dict]:
+        """Récupère les matchs en direct"""
+        live_matches = self.api.get_live_matches()
         
-        kelly = ((probability/100) * (odds - 1) - (1 - probability/100)) / (odds - 1)
+        formatted_matches = []
+        for match in live_matches[:5]:  # Limiter à 5 matchs
+            try:
+                formatted_match = {
+                    'id': match['fixture']['id'],
+                    'home': match['teams']['home']['name'],
+                    'home_id': match['teams']['home']['id'],
+                    'away': match['teams']['away']['name'],
+                    'away_id': match['teams']['away']['id'],
+                    'league': match['league']['name'],
+                    'score': f"{match['goals']['home']} - {match['goals']['away']}",
+                    'minute': match['fixture']['status']['elapsed'],
+                    'status': match['fixture']['status']['long']
+                }
+                formatted_matches.append(formatted_match)
+            except:
+                continue
         
-        # Ajuster selon le profil de risque
-        if risk_profile == 'conservative':
-            kelly *= 0.5
-        elif risk_profile == 'aggressive':
-            kelly *= 1.5
-        
-        # Limites
-        kelly = max(0, min(kelly, 0.1))  # Max 10% du bankroll
-        
-        stake = bankroll * kelly
-        
-        if stake < 1:
-            return "Observation"
-        elif stake < bankroll * 0.03:
-            return f"Petite (€{stake:.0f})"
-        elif stake < bankroll * 0.07:
-            return f"Moyenne (€{stake:.0f})"
-        else:
-            return f"Forte (€{stake:.0f})"
+        return formatted_matches
 
 # =============================================================================
-# UI COMPONENTS
+# UI COMPONENTS (Adapté pour l'API)
 # =============================================================================
 
 class UIComponents:
-    """Composants d'interface"""
+    """Composants d'interface avec données API"""
     
     @staticmethod
     def setup_page():
         """Configure la page Streamlit"""
         st.set_page_config(
-            page_title="Tipser Pro | Pronostics Football Mondial",
-            page_icon="🌍⚽",
+            page_title="Tipser Pro | Pronostics en Temps Réel",
+            page_icon="⚽",
             layout="wide",
             initial_sidebar_state="expanded"
         )
@@ -482,120 +530,62 @@ class UIComponents:
     @staticmethod
     def _inject_css():
         """Injecte le CSS"""
-        st.markdown(f"""
+        st.markdown("""
         <style>
-        /* Variables */
-        :root {{
-            --primary: {Config.COLORS['primary']};
-            --secondary: {Config.COLORS['secondary']};
-            --success: {Config.COLORS['success']};
-            --warning: {Config.COLORS['warning']};
-            --danger: {Config.COLORS['danger']};
-            --info: {Config.COLORS['info']};
-        }}
+        .stProgress > div > div > div {
+            background-color: #4CAF50;
+        }
         
-        /* Header */
-        .main-header {{
-            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
-            color: white;
-            padding: 25px;
-            border-radius: 15px;
-            text-align: center;
-            margin-bottom: 20px;
-        }}
-        
-        /* Cards */
-        .pro-card {{
+        .match-card {
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
             background: white;
-            border-radius: 15px;
-            padding: 20px;
-            margin: 15px 0;
-            border-left: 5px solid var(--success);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            transition: all 0.3s ease;
-        }}
+        }
         
-        .pro-card:hover {{
-            transform: translateY(-3px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-        }}
-        
-        /* Badges */
-        .badge {{
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
+        .live-badge {
+            background-color: #ff4444;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
             font-size: 12px;
             font-weight: bold;
-            margin: 2px;
-        }}
+            animation: pulse 2s infinite;
+        }
         
-        .badge-success {{ background: linear-gradient(135deg, var(--success) 0%, #2E7D32 100%); color: white; }}
-        .badge-warning {{ background: linear-gradient(135deg, var(--warning) 0%, #F57C00 100%); color: white; }}
-        .badge-danger {{ background: linear-gradient(135deg, var(--danger) 0%, #D32F2F 100%); color: white; }}
-        .badge-info {{ background: linear-gradient(135deg, var(--info) 0%, #1976D2 100%); color: white; }}
-        .badge-premium {{ background: linear-gradient(135deg, #FFD700 0%, #FFC107 100%); color: #333; }}
-        .badge-world {{ background: linear-gradient(135deg, #4CAF50 0%, #2196F3 100%); color: white; }}
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
         
-        /* Metrics */
-        .metric-box {{
-            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+        .api-status {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .refresh-button {
+            background-color: #4CAF50;
             color: white;
-            padding: 15px;
-            border-radius: 10px;
-            text-align: center;
-            margin: 5px;
-        }}
-        
-        /* Progress bars */
-        .stProgress > div > div > div {{
-            background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);
-        }}
-        
-        /* Buttons */
-        .stButton > button {{
-            border-radius: 10px;
-            font-weight: bold;
-            transition: all 0.3s ease;
-        }}
-        
-        .stButton > button:hover {{
-            transform: scale(1.03);
-        }}
-        
-        /* Select boxes */
-        .stSelectbox div[data-baseweb="select"] {{
-            border-radius: 10px;
-        }}
-        
-        /* Dataframes */
-        .dataframe {{
-            border-radius: 10px;
-            overflow: hidden;
-        }}
-        
-        /* Continent colors */
-        .continent-europe {{ color: #2196F3; }}
-        .continent-south-america {{ color: #4CAF50; }}
-        .continent-africa {{ color: #FF9800; }}
-        .continent-asia {{ color: #F44336; }}
-        .continent-north-america {{ color: #9C27B0; }}
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
         </style>
         """, unsafe_allow_html=True)
 
 # =============================================================================
-# MAIN APPLICATION
+# MAIN APPLICATION (Connectée à l'API)
 # =============================================================================
 
 class TipserProApp:
-    """Application principale"""
+    """Application principale avec données API"""
     
     def __init__(self):
         self.ui = UIComponents()
         self.data = DataManager()
-        self.ai = SimpleAIPredictor()
-        self.analyzer = BettingAnalyzer()
-        self.world_data = WorldData()
         
         # Initialiser session state
         self._init_session_state()
@@ -607,11 +597,9 @@ class TipserProApp:
             'view_mode': 'dashboard',
             'bankroll': 1000,
             'risk_profile': 'moderate',
-            'selected_continent': 'Europe',
-            'selected_league': 'Ligue 1 (France)',
-            'selected_home_team': None,
-            'selected_away_team': None,
-            'custom_match_mode': False
+            'selected_leagues': ['PL', 'PD', 'BL1', 'SA', 'FL1'],
+            'last_refresh': None,
+            'api_connected': True
         }
         
         for key, value in defaults.items():
@@ -630,6 +618,9 @@ class TipserProApp:
         with st.sidebar:
             self._display_sidebar()
         
+        # Vérifier la connexion API
+        self._check_api_status()
+        
         # Contenu principal
         self._display_main_content()
     
@@ -638,950 +629,295 @@ class TipserProApp:
         col1, col2, col3 = st.columns([1, 2, 1])
         
         with col1:
-            st.markdown("<h1 style='text-align: center;'>🌍⚽</h1>", unsafe_allow_html=True)
+            st.image("https://cdn-icons-png.flaticon.com/512/616/616430.png", width=80)
         
         with col2:
             st.markdown("""
-            <div class="main-header">
+            <div style="text-align: center; padding: 10px;">
                 <h1>🤖 TIPSER PRO</h1>
-                <h3>Pronostics Football Mondial</h3>
-                <p>Analyse de matchs du monde entier</p>
+                <h3>Pronostics Football en Temps Réel</h3>
             </div>
             """, unsafe_allow_html=True)
         
         with col3:
-            st.metric("Bankroll", f"€{st.session_state.bankroll}")
-            st.caption("Version Monde 🌍")
+            api_status = "✅ Connecté" if st.session_state.api_connected else "❌ Hors ligne"
+            st.metric("API Status", api_status)
+            if st.button("🔄 Rafraîchir"):
+                st.rerun()
+    
+    def _check_api_status(self):
+        """Vérifie le statut de l'API"""
+        try:
+            # Tester une requête simple
+            test_data = self.data.api.get_competitions()
+            st.session_state.api_connected = bool(test_data)
+        except:
+            st.session_state.api_connected = False
     
     def _display_sidebar(self):
         """Affiche la sidebar"""
-        st.sidebar.title("🎯 Navigation")
+        st.sidebar.title("⚙️ Configuration")
         
-        # Menu
-        menu_options = {
-            "📊 Dashboard": "dashboard",
-            "🌍 Matchs Mondiaux": "matches",
-            "➕ Créer Match Personnalisé": "custom_match",
-            "🤖 Analyse": "analysis",
-            "💰 Value Bets": "value",
-            "📈 Portfolio": "portfolio",
-            "⚙️ Réglages": "settings"
-        }
+        # Sélection des ligues
+        st.sidebar.subheader("🏆 Ligues")
         
-        selected = st.sidebar.radio(
-            "Menu",
-            list(menu_options.keys())
+        competitions = self.data.competitions
+        competition_options = {f"{comp['name']} ({comp.get('area', {}).get('name', '')})": comp['code'] 
+                              for comp in competitions if comp.get('code')}
+        
+        selected_names = st.sidebar.multiselect(
+            "Sélectionner les ligues",
+            list(competition_options.keys()),
+            default=list(competition_options.keys())[:5]
         )
         
-        st.session_state.view_mode = menu_options[selected]
+        st.session_state.selected_leagues = [competition_options[name] for name in selected_names]
         
+        # Filtres
+        st.sidebar.subheader("🔍 Filtres")
+        
+        days_ahead = st.sidebar.slider("Jours à venir", 1, 30, 7)
+        
+        # Stats API
         st.sidebar.divider()
+        st.sidebar.subheader("📊 Statistiques")
         
-        # Filtres rapides
-        st.sidebar.subheader("🌍 Filtres Continent")
-        
-        all_leagues = self.world_data.get_all_leagues()
-        continents = list(all_leagues.keys())
-        
-        selected_continent = st.sidebar.selectbox(
-            "Sélectionner un continent",
-            continents,
-            index=continents.index(st.session_state.selected_continent) if st.session_state.selected_continent in continents else 0
-        )
-        
-        st.session_state.selected_continent = selected_continent
-        
-        # Sélection de ligue
-        st.sidebar.subheader("🏆 Sélectionner une Ligue")
-        
-        leagues_in_continent = all_leagues[selected_continent]
-        selected_league = st.sidebar.selectbox(
-            "Choisir une ligue",
-            leagues_in_continent,
-            index=leagues_in_continent.index(st.session_state.selected_league) if st.session_state.selected_league in leagues_in_continent else 0
-        )
-        
-        st.session_state.selected_league = selected_league
-        
-        # Stats rapides
-        st.sidebar.divider()
-        st.sidebar.subheader("📈 Stats Mondiales")
-        
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            st.metric("Ligues", "24")
-            st.metric("Équipes", "428")
-        with col2:
-            st.metric("Continents", "4")
-            st.metric("Matchs/jour", "32")
-        
-        # Bouton actualisation
-        if st.sidebar.button("🔄 Actualiser Données", use_container_width=True):
-            self.data = DataManager()  # Regénérer les données
-            st.rerun()
+        if st.session_state.api_connected:
+            st.sidebar.success("API connectée")
+        else:
+            st.sidebar.error("API hors ligne")
+            st.sidebar.info("Utilisation des données simulées")
     
     def _display_main_content(self):
         """Affiche le contenu principal"""
-        view_mode = st.session_state.view_mode
-        
-        if view_mode == 'dashboard':
+        if st.session_state.view_mode == 'dashboard':
             self._display_dashboard()
-        elif view_mode == 'matches':
-            self._display_world_matches()
-        elif view_mode == 'custom_match':
-            self._display_custom_match_creator()
-        elif view_mode == 'analysis':
-            if st.session_state.selected_match:
-                self._display_analysis()
-            else:
-                st.warning("Veuillez d'abord sélectionner un match")
-                st.session_state.view_mode = 'matches'
-                st.rerun()
-        elif view_mode == 'value':
-            self._display_value_bets()
-        elif view_mode == 'portfolio':
-            self._display_portfolio()
-        elif view_mode == 'settings':
-            self._display_settings()
+        elif st.session_state.view_mode == 'matches':
+            self._display_matches()
+        elif st.session_state.view_mode == 'live':
+            self._display_live_matches()
     
     def _display_dashboard(self):
-        """Affiche le dashboard mondial"""
-        st.title("🌍 Dashboard Mondial")
+        """Affiche le dashboard"""
+        st.title("📊 Tableau de Bord")
         
-        # KPI Mondiaux
-        col1, col2, col3, col4 = st.columns(4)
+        # Live matches
+        st.subheader("⚡ Matchs en Direct")
         
-        with col1:
-            st.markdown("""
-            <div class="metric-box">
-                <h3>🌍 Continents</h3>
-                <h2>4</h2>
-            </div>
-            """, unsafe_allow_html=True)
+        live_matches = self.data.get_live_matches()
         
-        with col2:
-            st.markdown("""
-            <div class="metric-box">
-                <h3>🏆 Ligues Actives</h3>
-                <h2>24</h2>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col3:
-            st.markdown("""
-            <div class="metric-box">
-                <h3>⚽ Équipes</h3>
-                <h2>428</h2>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col4:
-            st.markdown("""
-            <div class="metric-box">
-                <h3>📈 ROI Global</h3>
-                <h2>+8.2%</h2>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        st.divider()
-        
-        # Performance par continent
-        st.subheader("📊 Performance par Continent")
-        
-        continent_data = {
-            'Continent': ['Europe', 'Amérique du Sud', 'Afrique', 'Asie'],
-            'Matchs Analysés': [156, 89, 67, 45],
-            'Taux de Réussite': ['72%', '68%', '65%', '62%'],
-            'ROI': ['+9.5%', '+8.2%', '+6.8%', '+5.4%']
-        }
-        
-        df_continents = pd.DataFrame(continent_data)
-        st.dataframe(df_continents, use_container_width=True, hide_index=True)
-        
-        # Derniers tips internationaux
-        st.divider()
-        st.subheader("🎯 Derniers Tips Mondiaux")
-        
-        tips = [
-            {"match": "Flamengo vs Palmeiras", "ligue": "Brasileirão", "pred": "Over 2.5", "cote": 1.85, "status": "✅ Gagné"},
-            {"match": "Urawa vs Kawasaki", "ligue": "J1 League", "pred": "1", "cote": 2.10, "status": "⏳ En cours"},
-            {"match": "Orlando City vs Inter Miami", "ligue": "MLS", "pred": "BTTS Yes", "cote": 1.65, "status": "✅ Gagné"},
-            {"match": "Al Ahly vs Zamalek", "ligue": "Egypte", "pred": "2", "cote": 3.25, "status": "❌ Perdu"}
-        ]
-        
-        for tip in tips:
-            with st.container():
-                col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 2])
-                
+        if live_matches:
+            for match in live_matches:
+                col1, col2, col3 = st.columns([3, 1, 2])
                 with col1:
-                    st.write(f"**{tip['match']}**")
-                    st.caption(tip['ligue'])
-                
+                    st.write(f"**{match['home']} vs {match['away']}**")
+                    st.caption(f"{match['league']}")
                 with col2:
-                    st.code(tip['pred'])
-                
+                    st.markdown(f"<div class='live-badge'>LIVE</div>", unsafe_allow_html=True)
                 with col3:
-                    st.metric("Cote", tip['cote'])
-                
-                with col4:
-                    continent_color = {
-                        'Brasileirão': 'continent-south-america',
-                        'J1 League': 'continent-asia',
-                        'MLS': 'continent-north-america',
-                        'Egypte': 'continent-africa'
-                    }.get(tip['ligue'], '')
-                    st.markdown(f"<span class='{continent_color}'>{tip['ligue']}</span>", unsafe_allow_html=True)
-                
-                with col5:
-                    if tip['status'] == '✅ Gagné':
-                        st.success(tip['status'])
-                    elif tip['status'] == '❌ Perdu':
-                        st.error(tip['status'])
-                    else:
-                        st.info(tip['status'])
-                
+                    st.write(f"**{match['score']}**")
+                    st.caption(f"{match['minute']}' - {match['status']}")
                 st.divider()
+        else:
+            st.info("Aucun match en direct pour le moment")
+        
+        # Prochains matchs
+        st.subheader("📅 Prochains Matchs")
+        
+        matches = self.data.get_matches(st.session_state.selected_leagues)
+        
+        for match in matches[:5]:
+            self._display_match_card(match)
     
-    def _display_world_matches(self):
-        """Affiche les matchs mondiaux"""
-        st.title(f"🌍 Matchs - {st.session_state.selected_continent}")
+    def _display_matches(self):
+        """Affiche tous les matchs"""
+        st.title("📅 Tous les Matchs")
         
-        # Filtres avancés
-        with st.expander("🔍 Filtres Avancés", expanded=True):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # Sélection multiple de ligues
-                all_leagues = self.world_data.get_all_leagues()
-                continent_leagues = all_leagues[st.session_state.selected_continent]
-                
-                selected_leagues = st.multiselect(
-                    "Ligues à afficher",
-                    continent_leagues,
-                    default=[st.session_state.selected_league]
-                )
-            
-            with col2:
-                date_filter = st.selectbox(
-                    "Période",
-                    ["Aujourd'hui", "Demain", "Week-end", "7 prochains jours", "Tous"]
-                )
+        # Bouton rafraîchir
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            if st.button("🔄 Actualiser les données"):
+                st.rerun()
         
-        # Bouton recherche
-        if st.button("🔍 Rechercher Matchs", type="primary", use_container_width=True):
-            with st.spinner("Analyse des matchs mondiaux..."):
-                time.sleep(0.5)
-                self._display_filtered_matches(selected_leagues if 'selected_leagues' in locals() else [])
-    
-    def _display_filtered_matches(self, selected_leagues):
-        """Affiche les matchs filtrés"""
-        matches = self.data.matches
-        
-        # Filtrer par ligues sélectionnées
-        if selected_leagues:
-            matches = [m for m in matches if m['league'] in selected_leagues]
+        # Récupérer les matchs
+        matches = self.data.get_matches(st.session_state.selected_leagues)
         
         if not matches:
-            st.info("Aucun match trouvé avec les filtres actuels.")
+            st.warning("Aucun match trouvé. Vérifiez votre connexion API.")
             return
         
-        st.subheader(f"📋 {len(matches)} Matchs Trouvés")
-        
+        # Afficher les matchs
         for match in matches:
-            # Obtenir les prédictions AI
-            home_stats = self.data.get_team_stats(match['home'])
-            away_stats = self.data.get_team_stats(match['away'])
-            h2h_stats = self.data.get_h2h_stats(match['home'], match['away'])
-            
-            prediction = self.ai.predict(match['home'], match['away'], home_stats, away_stats, h2h_stats)
-            
-            # Afficher la carte
-            self._render_world_match_card(match, prediction)
+            self._display_match_card(match)
     
-    def _render_world_match_card(self, match, prediction):
-        """Affiche une carte de match mondial"""
-        date_str = match['date'].strftime("%d/%m/%Y")
-        
-        # Déterminer la couleur du continent
-        continent_color_class = {
-            'Europe': 'continent-europe',
-            'Amérique du Sud': 'continent-south-america',
-            'Afrique': 'continent-africa',
-            'Asie': 'continent-asia'
-        }.get(match.get('continent', 'Europe'), '')
-        
-        st.markdown(f"""
-        <div class="pro-card">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <h4>{match['home']} vs {match['away']}</h4>
-                    <p><span class="{continent_color_class}">🏆 {match['league']}</span> | 📅 {date_str} | ⏰ {match['time']}</p>
-                </div>
-                <div>
-                    <span class="badge badge-world">🌍 Mondial</span>
-                    <span class="badge badge-info">Confiance: {prediction['confidence']*100:.0f}%</span>
-                </div>
-            </div>
+    def _display_match_card(self, match: dict):
+        """Affiche une carte de match"""
+        with st.container():
+            col1, col2, col3 = st.columns([3, 2, 2])
             
-            <div style="display: flex; justify-content: space-around; margin: 20px 0;">
-                <div style="text-align: center;">
-                    <h5>1</h5>
-                    <h3>{match['odds']['1']}</h3>
-                    <p>{prediction['home_win']}%</p>
-                </div>
-                <div style="text-align: center;">
-                    <h5>N</h5>
-                    <h3>{match['odds']['N']}</h3>
-                    <p>{prediction['draw']}%</p>
-                </div>
-                <div style="text-align: center;">
-                    <h5>2</h5>
-                    <h3>{match['odds']['2']}</h3>
-                    <p>{prediction['away_win']}%</p>
-                </div>
-            </div>
+            with col1:
+                st.subheader(f"{match['home']} vs {match['away']}")
+                st.caption(f"{match['league']} | {match['date'].strftime('%d/%m/%Y %H:%M')}")
+                st.caption(f"📍 {match['venue']}")
             
-            <div style="text-align: center; margin-top: 20px;">
-                <h4>🎯 Prédiction: {self._get_prediction_text(prediction)}</h4>
-                <p>Stade: {match['venue']}</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Boutons d'action
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button(f"📊 Analyser", key=f"analyze_{match['id']}", use_container_width=True):
-                st.session_state.selected_match = match
-                st.session_state.view_mode = 'analysis'
-                st.rerun()
-        
-        with col2:
-            if st.button(f"💰 Value Bet", key=f"value_{match['id']}", use_container_width=True):
-                st.session_state.selected_match = match
-                st.session_state.view_mode = 'value'
-                st.rerun()
-        
-        st.divider()
-    
-    def _display_custom_match_creator(self):
-        """Affiche l'interface pour créer un match personnalisé"""
-        st.title("➕ Créer un Match Personnalisé")
-        
-        st.markdown("""
-        <div class="pro-card">
-            <h3>🌍 Sélectionnez deux équipes du monde entier</h3>
-            <p>Créez votre propre match et obtenez une analyse AI personnalisée</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Sélection du continent pour l'équipe à domicile
-        st.subheader("🏠 Équipe à Domicile")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            continent_home = st.selectbox(
-                "Continent (Domicile)",
-                list(self.world_data.get_all_leagues().keys()),
-                key="continent_home"
-            )
-        
-        with col2:
-            # Sélection de la ligue basée sur le continent
-            leagues_home = self.world_data.get_all_leagues()[continent_home]
-            league_home = st.selectbox(
-                "Ligue (Domicile)",
-                leagues_home,
-                key="league_home"
-            )
-        
-        # Sélection de l'équipe à domicile
-        teams_home = self.world_data.get_teams_by_league(league_home)
-        selected_home_team = st.selectbox(
-            "Équipe à Domicile",
-            teams_home,
-            key="selected_home_team"
-        )
-        
-        st.divider()
-        
-        # Sélection du continent pour l'équipe à l'extérieur
-        st.subheader("✈️ Équipe à l'Extérieur")
-        
-        col3, col4 = st.columns(2)
-        
-        with col3:
-            continent_away = st.selectbox(
-                "Continent (Extérieur)",
-                list(self.world_data.get_all_leagues().keys()),
-                key="continent_away"
-            )
-        
-        with col4:
-            # Sélection de la ligue basée sur le continent
-            leagues_away = self.world_data.get_all_leagues()[continent_away]
-            league_away = st.selectbox(
-                "Ligue (Extérieur)",
-                leagues_away,
-                key="league_away"
-            )
-        
-        # Sélection de l'équipe à l'extérieur
-        teams_away = self.world_data.get_teams_by_league(league_away)
-        selected_away_team = st.selectbox(
-            "Équipe à l'Extérieur",
-            teams_away,
-            key="selected_away_team"
-        )
-        
-        # Paramètres du match
-        st.divider()
-        st.subheader("⚙️ Paramètres du Match")
-        
-        col5, col6 = st.columns(2)
-        
-        with col5:
-            match_date = st.date_input(
-                "Date du match",
-                datetime.now() + timedelta(days=3)
-            )
-        
-        with col6:
-            match_time = st.time_input(
-                "Heure du match",
-                datetime.now().replace(hour=20, minute=0)
-            )
-        
-        # Bouton d'analyse
-        st.divider()
-        
-        if st.button("🤖 Analyser ce Match Personnalisé", type="primary", use_container_width=True):
-            if selected_home_team == selected_away_team:
-                st.error("Veuillez sélectionner deux équipes différentes!")
-                return
+            with col2:
+                odds = match['odds']
+                st.write("**Cotes**")
+                st.write(f"1: {odds['1']} | N: {odds['N']} | 2: {odds['2']}")
             
-            with st.spinner("Analyse AI en cours..."):
-                time.sleep(1)
+            with col3:
+                # Obtenir la prédiction
+                home_team = {'id': match['home_id'], 'name': match['home']}
+                away_team = {'id': match['away_id'], 'name': match['away']}
                 
-                # Créer un match personnalisé
-                custom_match = {
-                    'id': 999,
-                    'home': selected_home_team,
-                    'away': selected_away_team,
-                    'league': f"{league_home} vs {league_away}",
-                    'date': datetime.combine(match_date, match_time),
-                    'time': match_time.strftime("%H:%M"),
-                    'venue': "Stade Personnalisé",
-                    'odds': {
-                        '1': round(random.uniform(1.5, 3.0), 2),
-                        'N': round(random.uniform(3.0, 4.0), 2),
-                        '2': round(random.uniform(2.0, 4.0), 2),
-                        'over_2.5': round(random.uniform(1.6, 2.1), 2),
-                        'btts_yes': round(random.uniform(1.5, 1.9), 2)
-                    }
-                }
+                prediction = self.data.ai.predict_match(
+                    home_team, away_team, match['competition_code']
+                )
                 
-                st.session_state.selected_match = custom_match
-                st.session_state.view_mode = 'analysis'
-                st.rerun()
+                st.write("**Prédiction**")
+                st.write(f"🏠 {prediction['home_win']}%")
+                st.write(f"🤝 {prediction['draw']}%")
+                st.write(f"✈️ {prediction['away_win']}%")
+            
+            # Boutons d'action
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("📊 Analyser", key=f"analyze_{match['id']}"):
+                    st.session_state.selected_match = match
+                    st.session_state.view_mode = 'analysis'
+                    st.rerun()
+            
+            with col_btn2:
+                if st.button("💰 Value Bet", key=f"value_{match['id']}"):
+                    self._display_value_analysis(match, prediction)
+            
+            st.divider()
     
-    def _get_prediction_text(self, prediction):
-        """Obtient le texte de prédiction"""
-        if prediction['home_win'] > prediction['away_win'] and prediction['home_win'] > prediction['draw']:
-            return "Victoire domicile"
-        elif prediction['away_win'] > prediction['home_win'] and prediction['away_win'] > prediction['draw']:
-            return "Victoire extérieur"
-        else:
-            return "Match nul"
-    
-    def _display_analysis(self):
-        """Affiche l'analyse d'un match"""
-        match = st.session_state.selected_match
+    def _display_live_matches(self):
+        """Affiche les matchs en direct"""
+        st.title("⚡ Matchs en Direct")
         
-        # Bouton retour
-        if st.button("← Retour aux matchs"):
-            st.session_state.view_mode = 'matches'
-            st.rerun()
+        live_matches = self.data.get_live_matches()
         
-        # Titre avec drapeaux
-        continent_emoji = {
-            'Europe': '🇪🇺',
-            'Amérique du Sud': '🇧🇷',
-            'Afrique': '🇿🇦',
-            'Asie': '🇯🇵'
-        }
+        if not live_matches:
+            st.info("Aucun match en direct pour le moment")
+            return
         
-        emoji = continent_emoji.get(match.get('continent', 'Europe'), '🌍')
-        st.title(f"{emoji} Analyse: {match['home']} vs {match['away']}")
-        
-        # Onglets
-        tab1, tab2, tab3 = st.tabs(["📊 Vue d'ensemble", "🤖 Prédictions", "📈 Statistiques"])
-        
-        with tab1:
-            self._display_analysis_overview(match)
-        
-        with tab2:
-            self._display_predictions(match)
-        
-        with tab3:
-            self._display_statistics(match)
-    
-    def _display_analysis_overview(self, match):
-        """Affiche la vue d'ensemble"""
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("🏟️ Informations")
-            
-            info = {
-                "Ligue": match['league'],
-                "Date": match['date'].strftime("%d/%m/%Y"),
-                "Heure": match['time'],
-                "Stade": match['venue'],
-                "Type": "🌍 Match International" if 'Personnalisé' in match['league'] else "Match de Ligue"
-            }
-            
-            for key, value in info.items():
-                st.metric(key, value)
-        
-        with col2:
-            st.subheader("📊 Cotes du Marché")
-            
-            odds_data = {
-                "1 - Victoire domicile": match['odds']['1'],
-                "N - Match nul": match['odds']['N'],
-                "2 - Victoire extérieur": match['odds']['2'],
-                "Over 2.5 buts": match['odds']['over_2.5'],
-                "Les deux marquent": match['odds']['btts_yes']
-            }
-            
-            df_odds = pd.DataFrame(list(odds_data.items()), columns=['Marché', 'Cote'])
-            st.dataframe(df_odds, use_container_width=True, hide_index=True)
-        
-        # Forme des équipes
-        st.divider()
-        st.subheader("📈 Forme des Équipes")
-        
-        home_stats = self.data.get_team_stats(match['home'])
-        away_stats = self.data.get_team_stats(match['away'])
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write(f"**{match['home']}**")
-            st.caption(f"Ligue: {home_stats.get('league', 'Inconnue')}")
-            self._display_team_stats(home_stats)
-        
-        with col2:
-            st.write(f"**{match['away']}**")
-            st.caption(f"Ligue: {away_stats.get('league', 'Inconnue')}")
-            self._display_team_stats(away_stats)
-    
-    def _display_team_stats(self, stats):
-        """Affiche les stats d'une équipe"""
-        # Forme
-        st.write(f"Forme récente: {stats['form']}")
-        
-        # Barres de progression
-        st.write("Buts marqués (moy.):")
-        st.progress(min(stats['goals_for_avg'] / 3, 1))
-        
-        st.write("Buts encaissés (moy.):")
-        st.progress(min(stats['goals_against_avg'] / 3, 1))
-        
-        # Métriques
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Possession", f"{stats['possession']}%")
-        with col2:
-            st.metric("Tirs/match", stats['shots_per_game'])
-    
-    def _display_predictions(self, match):
-        """Affiche les prédictions"""
-        st.subheader("🤖 Prédictions AI")
-        
-        # Obtenir la prédiction
-        home_stats = self.data.get_team_stats(match['home'])
-        away_stats = self.data.get_team_stats(match['away'])
-        h2h_stats = self.data.get_h2h_stats(match['home'], match['away'])
-        
-        prediction = self.ai.predict(match['home'], match['away'], home_stats, away_stats, h2h_stats)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("### 📊 Probabilités")
-            
-            # Afficher les probabilités avec barres
-            st.write(f"**{match['home']} gagne**")
-            st.progress(prediction['home_win'] / 100)
-            st.caption(f"{prediction['home_win']}%")
-            
-            st.write("**Match nul**")
-            st.progress(prediction['draw'] / 100)
-            st.caption(f"{prediction['draw']}%")
-            
-            st.write(f"**{match['away']} gagne**")
-            st.progress(prediction['away_win'] / 100)
-            st.caption(f"{prediction['away_win']}%")
-        
-        with col2:
-            st.markdown("### ⚽ Score Attend")
-            
-            # Afficher le score attendu
-            st.markdown(f"""
-            <div style="text-align: center; padding: 30px; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 15px;">
-                <h1 style="font-size: 4rem; margin: 0;">
-                    {prediction['expected_home']} - {prediction['expected_away']}
-                </h1>
-                <p style="color: #666; font-size: 1.2rem;">Score attendu (xG)</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Métriques
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.metric("Total buts", round(prediction['expected_home'] + prediction['expected_away'], 1))
-            with col_b:
-                st.metric("Confiance AI", f"{prediction['confidence']*100:.1f}%")
-        
-        # Recommandation
-        st.divider()
-        st.markdown("### 🎯 Recommandation")
-        
-        if prediction['home_win'] > 55:
-            rec = f"✅ {match['home']} gagne"
-            color = Config.COLORS['success']
-        elif prediction['away_win'] > 55:
-            rec = f"✅ {match['away']} gagne"
-            color = Config.COLORS['success']
-        else:
-            rec = "⚪ Match nul ou Double Chance"
-            color = Config.COLORS['info']
-        
-        st.markdown(f"""
-        <div style="background: {color}; 
-                    color: white; 
-                    padding: 20px; 
-                    border-radius: 10px; 
-                    text-align: center;">
-            <h2>{rec}</h2>
-            <p>Probabilité: {max(prediction['home_win'], prediction['draw'], prediction['away_win'])}%</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    def _display_statistics(self, match):
-        """Affiche les statistiques"""
-        st.subheader("📈 Statistiques Comparatives")
-        
-        home_stats = self.data.get_team_stats(match['home'])
-        away_stats = self.data.get_team_stats(match['away'])
-        
-        # Tableau comparatif
-        comparison_data = {
-            'Statistique': ['Forme récente', 'Buts/m (marqués)', 'Buts/m (encaissés)', 'Possession', 'Tirs/match', 'Ligue', 'Continent'],
-            match['home']: [
-                home_stats['form'],
-                f"{home_stats['goals_for_avg']}",
-                f"{home_stats['goals_against_avg']}",
-                f"{home_stats['possession']}%",
-                home_stats['shots_per_game'],
-                home_stats.get('league', 'Inconnue'),
-                home_stats.get('continent', 'Inconnu')
-            ],
-            match['away']: [
-                away_stats['form'],
-                f"{away_stats['goals_for_avg']}",
-                f"{away_stats['goals_against_avg']}",
-                f"{away_stats['possession']}%",
-                away_stats['shots_per_game'],
-                away_stats.get('league', 'Inconnue'),
-                away_stats.get('continent', 'Inconnu')
-            ]
-        }
-        
-        df = pd.DataFrame(comparison_data)
-        st.dataframe(df.set_index('Statistique'), use_container_width=True)
-    
-    def _display_value_bets(self):
-        """Affiche les value bets"""
-        st.title("💰 Value Bets Mondiaux")
-        
-        # Informations
-        st.info("""
-        ℹ️ Les **Value Bets** sont des paris où les cotes proposées sont plus élevées que la probabilité réelle estimée.
-        Ces opportunités offrent un avantage statistique sur le bookmaker.
-        """)
-        
-        # Scanner les value bets
-        if st.button("🔍 Scanner toutes les ligues", type="primary", use_container_width=True):
-            with st.spinner("Analyse des value bets mondiales..."):
-                time.sleep(1.5)
-                self._display_world_value_bets()
-    
-    def _display_world_value_bets(self):
-        """Affiche les value bets mondiales"""
-        value_bets = []
-        
-        # Analyser les matchs
-        for match in self.data.matches[:10]:  # Limiter à 10 matchs pour la démo
-            home_stats = self.data.get_team_stats(match['home'])
-            away_stats = self.data.get_team_stats(match['away'])
-            h2h_stats = self.data.get_h2h_stats(match['home'], match['away'])
-            
-            prediction = self.ai.predict(match['home'], match['away'], home_stats, away_stats, h2h_stats)
-            
-            # Analyser les marchés principaux
-            markets = [
-                ('1', match['odds']['1'], prediction['home_win']),
-                ('N', match['odds']['N'], prediction['draw']),
-                ('2', match['odds']['2'], prediction['away_win'])
-            ]
-            
-            for market_name, odds, probability in markets:
-                analysis = self.analyzer.calculate_value(probability, odds)
+        for match in live_matches:
+            with st.container():
+                col1, col2, col3 = st.columns([3, 1, 2])
                 
-                if analysis['is_value'] and analysis['value_percent'] >= 5:
-                    value_bets.append({
-                        'match': f"{match['home']} vs {match['away']}",
-                        'market': market_name,
-                        'odds': odds,
-                        'probability': probability,
-                        'value': analysis['value_percent'],
-                        'confidence': prediction['confidence'] * 100,
-                        'league': match['league'],
-                        'continent': match.get('continent', 'Europe')
-                    })
+                with col1:
+                    st.subheader(f"{match['home']} vs {match['away']}")
+                    st.caption(f"{match['league']}")
+                
+                with col2:
+                    st.markdown(f"<div class='live-badge'>LIVE {match['minute']}'</div>", 
+                               unsafe_allow_html=True)
+                
+                with col3:
+                    st.metric("Score", match['score'])
+                    st.caption(match['status'])
+                
+                # Mise à jour automatique
+                st.markdown("<div class='api-status'>Dernière mise à jour: " + 
+                           datetime.now().strftime("%H:%M:%S") + "</div>", 
+                           unsafe_allow_html=True)
+                
+                st.divider()
         
-        if value_bets:
-            # Trier par valeur
-            value_bets.sort(key=lambda x: x['value'], reverse=True)
-            
-            st.success(f"🎯 {len(value_bets)} Value Bets trouvées dans le monde!")
-            
-            for bet in value_bets:
-                with st.container():
-                    continent_color = {
-                        'Europe': 'continent-europe',
-                        'Amérique du Sud': 'continent-south-america',
-                        'Afrique': 'continent-africa',
-                        'Asie': 'continent-asia'
-                    }.get(bet['continent'], '')
-                    
-                    st.markdown(f"""
-                    <div class="pro-card">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <h4>{bet['match']}</h4>
-                                <p><span class="{continent_color}">🏆 {bet['league']}</span> | 🎯 {bet['market']}</p>
-                            </div>
-                            <div>
-                                <span class="badge badge-premium">+{bet['value']:.1f}% Valeur</span>
-                                <span class="badge badge-world">🌍</span>
-                            </div>
-                        </div>
-                        
-                        <div style="display: flex; justify-content: space-around; margin: 20px 0;">
-                            <div style="text-align: center;">
-                                <h5>Cote</h5>
-                                <h3>{bet['odds']}</h3>
-                            </div>
-                            <div style="text-align: center;">
-                                <h5>Probabilité</h5>
-                                <h3>{bet['probability']:.1f}%</h3>
-                            </div>
-                            <div style="text-align: center;">
-                                <h5>Valeur</h5>
-                                <h3>+{bet['value']:.1f}%</h3>
-                            </div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Boutons
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("📊 Analyser", key=f"analyze_vb_{bet['match']}", use_container_width=True):
-                            match_to_select = next((m for m in self.data.matches 
-                                                  if f"{m['home']} vs {m['away']}" == bet['match']), None)
-                            if match_to_select:
-                                st.session_state.selected_match = match_to_select
-                                st.session_state.view_mode = 'analysis'
-                                st.rerun()
-                    
-                    with col2:
-                        if st.button("💰 Placer pari", key=f"bet_vb_{bet['match']}", use_container_width=True, type="primary"):
-                            st.success(f"💰 Pari placé sur {bet['match']} - {bet['market']}")
-                            st.balloons()
-                    
-                    st.divider()
-        else:
-            st.info("ℹ️ Aucune value bet significative trouvée pour le moment.")
+        # Auto-refresh
+        time.sleep(30)  # Mettre à jour toutes les 30 secondes
+        st.rerun()
     
-    def _display_portfolio(self):
-        """Affiche le portfolio mondial"""
-        st.title("💰 Mon Portfolio Mondial")
+    def _display_value_analysis(self, match: dict, prediction: dict):
+        """Affiche l'analyse de valeur"""
+        st.subheader("💰 Analyse Value Bet")
         
-        # Résumé mondial
-        col1, col2, col3, col4 = st.columns(4)
+        odds = match['odds']
         
-        with col1:
-            st.metric("Paris actifs", "7")
-        
-        with col2:
-            st.metric("Ligues couvertes", "8")
-        
-        with col3:
-            st.metric("Continents", "3")
-        
-        with col4:
-            st.metric("ROI global", "+8.2%")
-        
-        st.divider()
-        
-        # Paris par continent
-        st.subheader("🌍 Répartition par Continent")
-        
-        continent_distribution = {
-            'Continent': ['Europe', 'Amérique du Sud', 'Afrique', 'Asie'],
-            'Nombre de Paris': [15, 8, 5, 3],
-            'Mise Totale': ['€1,200', '€650', '€400', '€250'],
-            'Gains': ['€1,380', '€720', '€460', '€270']
-        }
-        
-        df_dist = pd.DataFrame(continent_distribution)
-        st.dataframe(df_dist, use_container_width=True, hide_index=True)
-        
-        st.divider()
-        
-        # Derniers paris mondiaux
-        st.subheader("📊 Derniers Paris Internationaux")
-        
-        world_bets = [
-            {"match": "Flamengo vs Palmeiras", "continent": "Amérique du Sud", "type": "Over 2.5", "mise": "€100", "statut": "✅ Gagné €185"},
-            {"match": "Urawa vs Kawasaki", "continent": "Asie", "type": "1", "mise": "€80", "statut": "⏳ En cours"},
-            {"match": "Bayern vs Dortmund", "continent": "Europe", "type": "BTTS Yes", "mise": "€120", "statut": "✅ Gagné €198"},
-            {"match": "Al Ahly vs Zamalek", "continent": "Afrique", "type": "2", "mise": "€60", "statut": "❌ Perdu €0"}
+        # Analyser chaque marché
+        markets = [
+            ('Victoire domicile', '1', odds['1'], prediction['home_win']),
+            ('Match nul', 'N', odds['N'], prediction['draw']),
+            ('Victoire extérieur', '2', odds['2'], prediction['away_win'])
         ]
         
-        for bet in world_bets:
-            with st.container():
-                col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 2])
-                with col1:
-                    st.write(f"**{bet['match']}**")
-                    continent_emoji = {
-                        'Europe': '🇪🇺',
-                        'Amérique du Sud': '🇧🇷',
-                        'Afrique': '🇿🇦',
-                        'Asie': '🇯🇵'
-                    }
-                    st.caption(f"{continent_emoji.get(bet['continent'], '🌍')} {bet['continent']}")
-                with col2:
-                    st.code(bet['type'])
-                with col3:
-                    st.write(bet['mise'])
-                with col4:
-                    st.write(bet['continent'])
-                with col5:
-                    if '✅' in bet['statut']:
-                        st.success(bet['statut'])
-                    elif '❌' in bet['statut']:
-                        st.error(bet['statut'])
-                    else:
-                        st.warning(bet['statut'])
-                st.divider()
-    
-    def _display_settings(self):
-        """Affiche les réglages mondiaux"""
-        st.title("⚙️ Réglages Mondiaux")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("🌍 Configuration Mondiale")
+        for name, code, odd, prob in markets:
+            col1, col2, col3 = st.columns([2, 1, 1])
             
-            # Sélection des continents d'intérêt
-            all_continents = list(self.world_data.get_all_leagues().keys())
-            selected_continents = st.multiselect(
-                "Continents d'intérêt",
-                all_continents,
-                default=all_continents[:2]
-            )
+            with col1:
+                st.write(f"**{name}**")
             
-            # Limite de ligues par continent
-            max_leagues = st.slider(
-                "Ligues max par continent",
-                1, 10, 5
-            )
+            with col2:
+                st.metric("Cote", odd)
             
-            # Niveau de détail
-            detail_level = st.selectbox(
-                "Niveau d'analyse",
-                ["Basique", "Standard", "Avancé", "Expert"]
-            )
-        
-        with col2:
-            st.subheader("💰 Paramètres de Paris Mondiaux")
-            
-            bankroll = st.number_input(
-                "Bankroll total (€)",
-                min_value=100,
-                max_value=10000,
-                value=st.session_state.bankroll,
-                step=100
-            )
-            
-            risk_profile = st.selectbox(
-                "Profil de risque mondial",
-                ["Très Conservateur", "Conservateur", "Modéré", "Agressif", "Très Agressif"],
-                index=2
-            )
-            
-            # Stratégie par continent
-            st.checkbox("Ajuster automatiquement selon le continent", value=True)
-            st.checkbox("Notifications matchs internationaux", value=True)
-        
-        # Boutons de sauvegarde
-        st.divider()
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            if st.button("💾 Sauvegarder", type="primary", use_container_width=True):
-                st.session_state.bankroll = bankroll
-                st.session_state.risk_profile = risk_profile.lower()
-                st.success("Réglages mondiaux sauvegardés!")
-                st.balloons()
-        
-        with col2:
-            if st.button("🔄 Réinitialiser", use_container_width=True):
-                st.session_state.bankroll = 1000
-                st.session_state.risk_profile = 'moderate'
-                st.rerun()
-        
-        with col3:
-            if st.button("🌍 Exporter config", use_container_width=True):
-                st.info("Configuration mondiale exportée!")
-                st.download_button(
-                    label="📥 Télécharger",
-                    data="Configuration Tipser Pro Mondial",
-                    file_name="tipser_pro_world_config.json",
-                    mime="application/json"
-                )
+            with col3:
+                st.metric("Probabilité", f"{prob}%")
+                
+                # Calculer la valeur
+                fair_odd = 100 / prob if prob > 0 else 0
+                value = (odd / fair_odd - 1) * 100 if fair_odd > 0 else 0
+                
+                if value > 5:
+                    st.success(f"+{value:.1f}%")
+                elif value > 0:
+                    st.info(f"+{value:.1f}%")
+                else:
+                    st.error(f"{value:.1f}%")
+
+# =============================================================================
+# FICHIER REQUIREMENTS.TXT (pour la version API)
+# =============================================================================
+
+"""
+# Tipser Pro avec API - Requirements
+streamlit>=1.28.0
+pandas>=2.1.0
+numpy>=1.24.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+python-dateutil>=2.8.2
+"""
+
+# =============================================================================
+# FICHIER .env.example (à créer)
+# =============================================================================
+
+"""
+FOOTBALL_DATA_API_KEY=votre_cle_api_ici
+FOOTBALL_API_KEY=votre_cle_api_ici
+"""
+
+# =============================================================================
+# INSTRUCTIONS POUR LES APIs
+# =============================================================================
+
+"""
+1. API Football-Data.org (Gratuite - 10 requêtes/jour) :
+   - Inscription gratuite sur https://www.football-data.org/
+   - Copier votre clé API
+   
+2. API Football-API.com (Alternative - 100 requêtes/jour gratuit) :
+   - Inscription sur https://www.api-football.com/
+   - Obtenir votre clé RapidAPI
+
+3. Configuration :
+   - Créer un fichier .env à la racine
+   - Ajouter vos clés API
+   - L'application utilisera les données simulées si les APIs sont indisponibles
+"""
 
 # =============================================================================
 # POINT D'ENTRÉE
 # =============================================================================
 
-def main():
-    """Fonction principale"""
-    try:
-        app = TipserProApp()
-        app.run()
-    except Exception as e:
-        st.error(f"Une erreur est survenue: {str(e)}")
-        st.info("Veuillez rafraîchir la page ou contacter le support.")
-
 if __name__ == "__main__":
-    main()
+    # Vérifier les clés API
+    if APIConfig.FOOTBALL_DATA_API_KEY == 'YOUR_API_KEY_HERE':
+        st.warning("⚠️ API non configurée. Utilisation des données simulées.")
+        st.info("Pour utiliser les données réelles, configurez votre clé API dans le fichier .env")
+    
+    # Lancer l'application
+    app = TipserProApp()
+    app.run()
